@@ -18,6 +18,7 @@ note: Energy is only used for the phase beam. It does not impact your ability to
 
 1. We will test that the user can select their character
 2. We will test that the level map can be generated
+3. We will test that the level map can be completed (DFS below)
 3. We will test that blockages or "clogs" can be generated in the level map
 4. We will test that the character can move throughout the level
 5. We test that the character can approach a clog, interact with it
@@ -45,6 +46,8 @@ note: Energy is only used for the phase beam. It does not impact your ability to
 ## The Failure State: (Describe error handling. e.g., "Save file is corrupted -> Game catches exception -> Loads default new game").
 
 1. If save file is corrupted, game catches exception, and loads new game. 
+
+## Algorithm Test: Generate maze → run DFS from entrance → assert exit reachable; if not, regenerate.
 
 ## The Solvability Check (Algorithm Selection):
 
