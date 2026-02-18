@@ -1,16 +1,16 @@
-Nick's Trivia Maze Concept
+# Nick's Trivia Maze Concept
 
-Model: GameModel, Player, Level, Maze, Clog, Question, QuestionBank
-View: PyQt6
-Controller: main.py
+* Model: GameModel, Player, Level, Maze, Clog, Question, QuestionBank
+* View: PyQt6
+* Controller: main.py
 
-Section A: The Theme (The Hook)
+## Section A: The Theme (The Hook)
 
 You play a plumber with all the traits and mannersims of an 80s action hero -- confident, masculine, and ready to get to work. They are the best at clearing clogs in the city of Nuovo Fresco -- a grimy neon metropolis that was designed with the best intentions, but that's turned out to represent some of the worst. Cleaning the pipes is a dirty job, but someone's got to keep one less piece of sewage off the street. It's up to you to navigate the maze of pipes, clear the correct blockages, and keep the city flowing. 
 
 Questions could stem from any topic. I know there are sites that allow you to connect to question bank API's across a wide range of topics. I was envisioning this as the main question engine to break through a clog. An additional nice to have could be a storyline that relates to how clearing the clogs impacts our hero as they progress through the levels. 
 
-Section B: The Test Strategy (QA & Algorithms)
+## Section B: The Test Strategy (QA & Algorithms)
 
 We practice Test Driven Development (TDD). Describe specifically how we will verify the system works next week.
 
@@ -30,23 +30,23 @@ note: Energy is only used for the phase beam. It does not impact your ability to
 12. We will test that a victory condition is triggered when the character navigates all levels. 
 
 
-The Happy Path: (Describe a standard successful interaction. e.g., "Player answers correctly -> Door unlocks -> Score +10").
+## The Happy Path: (Describe a standard successful interaction. e.g., "Player answers correctly -> Door unlocks -> Score +10").
 
 1. The player approaches a blockage, receives a question, answers correctly, Energy +10
 2. The player can activate their phase beam at a cost of 50 energy points to instantly clear a blockage
 
 
-The Edge Case: (Describe a boundary condition. e.g., "Player attempts to move North into a solid wall -> System catches invalid move -> Player stays at x,y").
+## The Edge Case: (Describe a boundary condition. e.g., "Player attempts to move North into a solid wall -> System catches invalid move -> Player stays at x,y").
 
 1. Player attempts to move through walls of pipes, receives prompt of "ouch my head", and stays at x,y
 2. Player attempts to step through a blockage without interacting, receives a prompt of "At least half my face is clean" or "Now I need a shower." 
     
 
-The Failure State: (Describe error handling. e.g., "Save file is corrupted -> Game catches exception -> Loads default new game").
+## The Failure State: (Describe error handling. e.g., "Save file is corrupted -> Game catches exception -> Loads default new game").
 
 1. If save file is corrupted, game catches exception, and loads new game. 
 
-The Solvability Check (Algorithm Selection):
+## The Solvability Check (Algorithm Selection):
 
 Problem: How do we ensure the randomly generated maze is solvable and the exit is reachable?
 
@@ -70,7 +70,7 @@ Continue exploring paths deeply until:
 You reach the exit → solvable, or
 All possible paths are exhausted → not solvable.
     
-Section C: The Architecture Map (Patterns)
+## Section C: The Architecture Map (Patterns)
 
 I asked AI to help me with this and here is what is gave me. Some of the things might be a bit too much for this project (things like effects and audio might get pushed out), but it's helping me better understand how the individual components that I've outlined above will fit into the MVC architecture (so I've left them in the list). This is also interesting because it further elaborated on how MVC impacts things like the happy path and edge cases outlined above. I'm curious to see / understand how the code ends up looking once we prompt it to be developed. 
 
