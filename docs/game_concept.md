@@ -346,6 +346,6 @@ Player Input
 * **Team Friendly:** Artists work in View, programmers in Model, gameplay devs in Controller.
 
 
-AI Insights:
+## AI Insights:
 
 Apart from the insight on MVC mentioned above, the AI was a bit confused on how the energy economy worked in the game. I'd only introduced it as a way to gain an ability to destroy a clog without having to answer a question. However, the AI was asking what would happen if the player had 0 energy. It was under the impression that the game might end, but this is not how I intended it to function. 
