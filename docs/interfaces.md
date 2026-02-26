@@ -1,128 +1,67 @@
-# Protocols and Dataclasses Specification
+# interfaces.md — Trivia Maze Walking Skeleton
 
-This document defines every dataclass (value object / entity) and protocol (interface contract) used across the three core modules: `maze.py`, `db.py`, and `main.py`.
+## 1. Dependency Rules
 
----
+| Module | May Import | Must Never |
+|---|---|---|
+| `maze.py` | Python stdlib only (`random`, `enum`, `dataclasses`, `typing`) | `db`, `main`, `print()`, `input()` |
+| `db.py` | Python stdlib only (`json`, `os`, `typing`) | `maze`, `main`, `print()`, `input()` |
+| `main.py` | `maze`, `db`, Python stdlib | No restrictions |
 
-## Module Dependency Rule
-
-```
-main.py ──imports──▶ maze.py
-main.py ──imports──▶ db.py
-maze.py ──✘──       db.py
-db.py   ──✘──       maze.py
-```
-
-`maze.py` and `db.py` are siblings that never import each other. `main.py` is the only module with knowledge of both worlds. This keeps domain logic free of persistence concerns and keeps persistence generic.
+- Dataclasses and Enums are defined in `maze.py` (domain concepts).
+- `db.py` never imports them — it only receives and returns plain dicts.
+- `main.py` imports them from `maze.py` and owns all dataclass-to-dict conversion.
 
 ---
 
-## Module 1: `maze.py` — Domain Logic (Pure Python)
-
-All domain types live here. No JSON awareness, no file I/O, no persistence imports.
+## 2. Shared Data Contracts
 
 ### Enums
 
-#### `Direction`
-
 ```python
 class Direction(Enum):
-    NORTH = auto()
-    SOUTH = auto()
-    EAST = auto()
-    WEST = auto()
+    NORTH = "north"
+    SOUTH = "south"
+    EAST = "east"
+    WEST = "west"
+
+class GameStatus(Enum):
+    IN_PROGRESS = "in_progress"
+    WON = "won"
+    QUIT = "quit"
 ```
 
-Cardinal directions for maze navigation. Used by game logic to interpret player movement; deliberately **not** used as dict keys inside dataclasses (see `Room` rationale below).
-
----
+Enums are stored in JSON as their `.value` string. Reconstructed via `Direction("north")`.
 
 ### Dataclasses
 
-#### `Position`
-
 ```python
-@dataclass(frozen=True)
+@dataclass
 class Position:
     row: int
     col: int
-```
 
-| Aspect | Detail |
-|---|---|
-| **Role** | Immutable value object representing a cell coordinate |
-| **frozen** | `True` — instances are hashable and can be used in sets or as dict keys in domain logic |
-| **Equality** | Structural (`Position(0, 1) == Position(0, 1)` is `True`) |
-| **Serialization** | `dataclasses.asdict()` produces `{"row": 0, "col": 1}` — directly JSON-compatible |
-
-#### `Question`
-
-```python
 @dataclass
 class Question:
     prompt: str
     choices: list[str]
-    correct_index: int
-    category: str = ""
-```
+    correct_answer: str
 
-| Field | Type | Description |
-|---|---|---|
-| `prompt` | `str` | The question text shown to the player |
-| `choices` | `list[str]` | Ordered answer options (typically 4) |
-| `correct_index` | `int` | Zero-based index into `choices` for the correct answer |
-| `category` | `str` | Optional topic tag (e.g., `"science"`, `"history"`) |
-
-#### `Room`
-
-```python
 @dataclass
 class Room:
     position: Position
-    north_open: bool = False
-    south_open: bool = False
-    east_open: bool = False
-    west_open: bool = False
-    has_clog: bool = False
-    is_entrance: bool = False
-    is_exit: bool = False
-```
+    walls: dict[str, bool]   # {"north": True, "south": False, ...}
+    has_clog: bool
+    is_entrance: bool
+    is_exit: bool
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `position` | `Position` | *(required)* | Grid coordinate of this room |
-| `north_open` | `bool` | `False` | Whether the north wall is open (passable) |
-| `south_open` | `bool` | `False` | Whether the south wall is open |
-| `east_open` | `bool` | `False` | Whether the east wall is open |
-| `west_open` | `bool` | `False` | Whether the west wall is open |
-| `has_clog` | `bool` | `False` | Whether a clog (blockage) occupies this room |
-| `is_entrance` | `bool` | `False` | Whether this room is the maze entrance |
-| `is_exit` | `bool` | `False` | Whether this room is the maze exit |
-
-**Design rationale — explicit booleans vs. `dict[Direction, bool]`:**
-A dict with `Direction` enum keys would serialize via `dataclasses.asdict()` into `{<Direction.NORTH: 1>: True, ...}` — non-string keys that `json.dump` rejects. Explicit boolean fields avoid this entirely and serialize cleanly without custom logic.
-
-#### `Player`
-
-```python
 @dataclass
 class Player:
-    name: str
     position: Position
-    energy: int = 0
-```
+    energy: int
+    clogs_cleared: int
+    current_level: int
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `name` | `str` | *(required)* | Player-chosen character name |
-| `position` | `Position` | *(required)* | Current location in the maze |
-| `energy` | `int` | `0` | Accumulated energy points; spent on the phase beam (50 per use), gained by answering correctly (+10) or lost on wrong answers (−5) |
-
-Energy does **not** gate movement or basic interaction — it is exclusively the currency for the phase beam ability.
-
-#### `Maze`
-
-```python
 @dataclass
 class Maze:
     rows: int
@@ -130,264 +69,209 @@ class Maze:
     grid: list[list[Room]]
     entrance: Position
     exit_pos: Position
-```
 
-| Field | Type | Description |
-|---|---|---|
-| `rows` | `int` | Number of rows in the grid |
-| `cols` | `int` | Number of columns in the grid |
-| `grid` | `list[list[Room]]` | 2D grid accessed as `grid[row][col]` |
-| `entrance` | `Position` | Starting cell |
-| `exit_pos` | `Position` | Goal cell |
-
-**Design rationale — `list[list[Room]]` vs. `dict[Position, Room]`:**
-A dict keyed by `Position` objects produces non-string JSON keys. A 2D list serializes cleanly via `dataclasses.asdict()` (list of lists of dicts) and provides O(1) access through `grid[pos.row][pos.col]`.
-
-**Invariant — wall consistency between adjacent rooms:**
-If room `(r, c)` has `east_open=True`, then room `(r, c+1)` **must** have `west_open=True`, and vice versa. The same applies to north/south pairs: if `(r, c)` has `south_open=True`, then `(r+1, c)` must have `north_open=True`. Any `MazeGenerator` implementation must produce a grid satisfying this invariant. A convenience validator can verify it:
-
-```python
-def is_wall_consistent(maze: Maze) -> bool:
-    for r in range(maze.rows):
-        for c in range(maze.cols):
-            room = maze.grid[r][c]
-            if c + 1 < maze.cols:
-                neighbor = maze.grid[r][c + 1]
-                if room.east_open != neighbor.west_open:
-                    return False
-            if r + 1 < maze.rows:
-                neighbor = maze.grid[r + 1][c]
-                if room.south_open != neighbor.north_open:
-                    return False
-    return True
-```
-
-This prevents "one-way walls" where a player can walk east but not back west — a subtle bug that is hard to diagnose from gameplay alone.
-
-#### `GameState`
-
-```python
 @dataclass
 class GameState:
     player: Player
     maze: Maze
-    current_level: int = 1
-    total_levels: int = 3
-    clogs_cleared: int = 0
-    total_clogs: int = 0
+    status: GameStatus
+    questions_answered: int
+    questions_correct: int
+
+@dataclass
+class MoveResult:
+    success: bool
+    message: str
+    new_position: Position | None
+
+@dataclass
+class AnswerResult:
+    correct: bool
+    clog_cleared: bool
+    energy_change: int
+    message: str
 ```
-
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `player` | `Player` | *(required)* | Current player state |
-| `maze` | `Maze` | *(required)* | Current maze state |
-| `current_level` | `int` | `1` | Active level number (1-indexed) |
-| `total_levels` | `int` | `3` | Total number of levels in the game; victory triggers when `current_level > total_levels` |
-| `clogs_cleared` | `int` | `0` | Clogs the player has removed this level |
-| `total_clogs` | `int` | `0` | Total clogs that were generated for this level |
-
-`GameState` is the **aggregate root** — the single object that captures everything needed to save or resume a game. All persistence flows through this type. The `total_levels` field makes the victory condition (`current_level > total_levels`) checkable without a hard-coded constant buried in game logic.
 
 ---
 
-### Protocols (Domain Contracts)
+## 3. Protocol Contracts
 
-Protocols define **what** the system needs without prescribing **how** it's done. Concrete implementations are injected by `main.py`.
-
-#### `MazeGenerator`
+### MazeProtocol (`maze.py`)
 
 ```python
-class MazeGenerator(Protocol):
-    def generate(self, rows: int, cols: int) -> Maze: ...
+class MazeProtocol(Protocol):
+    def create_maze(self, rows: int, cols: int, seed: int | None = None) -> Maze:
+        """Generate a solvable maze with clogs. Raises ValueError if rows/cols < 2."""
+
+    def move_player(self, maze: Maze, player: Player, direction: Direction) -> MoveResult:
+        """Attempt a move. Returns result — never mutates player."""
+
+    def get_room(self, maze: Maze, position: Position) -> Room:
+        """Return room at position. Raises ValueError if out of bounds."""
+
+    def has_clog(self, maze: Maze, position: Position) -> bool:
+        """Check if room has a clog. Raises ValueError if out of bounds."""
+
+    def attempt_answer(self, maze: Maze, position: Position, answer: str, question: Question) -> AnswerResult:
+        """Submit an answer at a clog. Mutates room's has_clog on correct answer."""
+
+    def is_solved(self, maze: Maze) -> bool:
+        """True if all blocking clogs are cleared."""
+
+    def get_question(self, seed: int | None = None) -> Question:
+        """Return a trivia question."""
+
+    def check_solvability(self, maze: Maze, start: Position, end: Position) -> bool:
+        """DFS from start to end. Returns True if path exists."""
 ```
 
-Produces a new `Maze` with randomly placed walls. The returned maze is **not** guaranteed to be solvable — callers should pair this with `SolvabilityChecker`.
-
-#### `SolvabilityChecker`
+### RepositoryProtocol (`db.py`)
 
 ```python
-class SolvabilityChecker(Protocol):
-    def is_solvable(self, maze: Maze) -> bool: ...
+class RepositoryProtocol(Protocol):
+    def save_game(self, state: dict, filepath: str) -> bool:
+        """Write dict to JSON file. Returns False on failure."""
+
+    def load_game(self, filepath: str) -> dict | None:
+        """Read JSON file to dict. Returns None if missing or corrupted."""
+
+    def delete_save(self, filepath: str) -> bool:
+        """Delete save file. Returns False if not found."""
+
+    def save_exists(self, filepath: str) -> bool:
+        """Check if save file exists."""
 ```
 
-Returns `True` if a path exists from `maze.entrance` to `maze.exit_pos` using DFS (or any complete search). Used in a generate-then-verify loop: generate a maze, check solvability, regenerate if needed.
-
-#### `QuestionSource`
+### GameEngineProtocol (`main.py`)
 
 ```python
-class QuestionSource(Protocol):
-    def get_question(self) -> Question: ...
+class GameEngineProtocol(Protocol):
+    def start_new_game(self) -> None:
+        """Initialize maze and player."""
+
+    def load_game(self) -> bool:
+        """Restore from save. Returns False if no save or load fails."""
+
+    def save_game(self) -> bool:
+        """Persist current state to JSON."""
+
+    def run(self) -> None:
+        """Main game loop until WON or QUIT."""
+
+    def process_command(self, command: str) -> GameStatus:
+        """Parse and execute a command. Unknown commands print help."""
 ```
 
-Returns the next question for the player. Implementations may draw from an external API, a local SQLite database, or a hardcoded list — the domain doesn't care.
+**Note:** `attempt_answer` is the only protocol method that mutates state (clears the clog in the maze grid). All other maze methods return new data without modifying inputs.
 
 ---
 
-## Module 2: `db.py` — Persistence (JSON I/O)
+## 4. Boundary Crossing Strategy
 
-`db.py` is a generic dict-in / dict-out JSON store. It **never** imports from `maze.py` and has no knowledge of domain types.
+`main.py` owns all conversion between rich objects and plain dicts.
 
-### Protocol
-
-#### `GameRepository`
-
+**Saving:**
 ```python
-class GameRepository(Protocol):
-    def save(self, data: dict[str, Any]) -> None: ...
-    def load(self) -> dict[str, Any]: ...
-    def exists(self) -> bool: ...
+state_dict = asdict(game_state)       # recursively flattens all dataclasses
+state_dict["status"] = game_state.status.value  # enum → string
+db.save_game(state_dict, "savegame.json")
 ```
 
-| Method | Description |
-|---|---|
-| `save` | Writes a JSON-compatible dict to persistent storage |
-| `load` | Reads and returns the previously saved dict |
-| `exists` | Returns `True` if a save file is present |
-
-### Reference Implementation
-
+**Loading:**
 ```python
-class JsonFileRepository:
-    def __init__(self, path: str) -> None: ...
-    def save(self, data: dict[str, Any]) -> None: ...   # json.dump
-    def load(self) -> dict[str, Any]: ...                # json.load
-    def exists(self) -> bool: ...                        # os.path.exists
+data = db.load_game("savegame.json")  # returns plain dict
+player = Player(
+    position=Position(**data["player"]["position"]),
+    energy=data["player"]["energy"],
+    clogs_cleared=data["player"]["clogs_cleared"],
+    current_level=data["player"]["current_level"]
+)
+# ... reconstruct Maze, Rooms, GameState similarly
 ```
 
-Corrupt files should raise a standard exception (e.g., `json.JSONDecodeError`). The caller (`main.py`) catches the exception and falls back to a new game.
+`db.py` never sees a `Position` or any dataclass. It just reads and writes dicts.
 
 ---
 
-## Module 3: `main.py` — The Engine (Mapping & Orchestration)
+## 5. JSON Save Format
 
-`main.py` is the only module that imports from both `maze.py` and `db.py`. It handles:
-
-1. **Conversion** between rich domain objects and flat JSON dicts
-2. **Orchestration** of the game loop, input dispatch, and state transitions
-3. **Dependency injection** — wiring concrete implementations to the protocols above
-
----
-
-### Serialization Strategy: The `asdict` / Reconstruct Pattern
-
-The bridge between `maze.py`'s rich objects and `db.py`'s raw dicts uses two complementary techniques with **no custom serialization code on the domain side**.
-
-#### Saving (Domain → Dict)
-
-```python
-import dataclasses
-
-state_dict = dataclasses.asdict(game_state)
-repository.save(state_dict)
-```
-
-`dataclasses.asdict()` recursively converts the entire `GameState` tree — including nested `Position`, `Room`, `Player`, and `Maze` objects — into a plain dict of dicts, lists, and primitives. The result is directly JSON-serializable.
-
-**Example output (abbreviated):**
+Every save file includes `schema_version`. All fields are required.
 
 ```json
 {
+  "schema_version": 1,
+  "status": "in_progress",
+  "questions_answered": 5,
+  "questions_correct": 3,
   "player": {
-    "name": "Duke",
-    "position": {"row": 2, "col": 3},
-    "energy": 40
+    "position": {"row": 0, "col": 1},
+    "energy": 105,
+    "clogs_cleared": 2,
+    "current_level": 1
   },
   "maze": {
-    "rows": 4,
-    "cols": 4,
-    "grid": [[{"position": {"row": 0, "col": 0}, "north_open": false, ...}, ...], ...],
+    "rows": 3,
+    "cols": 3,
     "entrance": {"row": 0, "col": 0},
-    "exit_pos": {"row": 3, "col": 3}
-  },
-  "current_level": 1,
-  "total_levels": 3,
-  "clogs_cleared": 2,
-  "total_clogs": 5
+    "exit_pos": {"row": 2, "col": 2},
+    "grid": [
+      [
+        {
+          "position": {"row": 0, "col": 0},
+          "walls": {"north": true, "south": false, "east": false, "west": true},
+          "has_clog": false,
+          "is_entrance": true,
+          "is_exit": false
+        }
+      ]
+    ]
+  }
 }
 ```
 
-#### Loading (Dict → Domain)
-
-`main.py` reconstructs domain objects bottom-up using `**` unpacking:
-
-```python
-def _dict_to_state(data: dict) -> GameState:
-    maze_data = data["maze"]
-    grid = [
-        [
-            Room(
-                position=Position(**room["position"]),
-                **{k: v for k, v in room.items() if k != "position"}
-            )
-            for room in row
-        ]
-        for row in maze_data["grid"]
-    ]
-    maze = Maze(
-        rows=maze_data["rows"],
-        cols=maze_data["cols"],
-        grid=grid,
-        entrance=Position(**maze_data["entrance"]),
-        exit_pos=Position(**maze_data["exit_pos"]),
-    )
-    player_data = data["player"]
-    player = Player(
-        name=player_data["name"],
-        position=Position(**player_data["position"]),
-        energy=player_data["energy"],
-    )
-    return GameState(
-        player=player,
-        maze=maze,
-        current_level=data.get("current_level", 1),
-        total_levels=data.get("total_levels", 3),
-        clogs_cleared=data.get("clogs_cleared", 0),
-        total_clogs=data.get("total_clogs", 0),
-    )
-```
-
-The pattern `Position(**d)` works because `Position`'s fields (`row`, `col`) exactly match the dict keys produced by `asdict()`.
-
-#### Boundary Crossing Summary
-
-```
-maze.py                    main.py                        db.py
-───────                    ───────                        ─────
-Position(row=2, col=3)  →  dataclasses.asdict()  ──────→  {"row": 2, "col": 3}
-                            (recursive, automatic)          json.dump() → file
-
-Position(row=2, col=3)  ←  Position(**d)         ◀──────  {"row": 2, "col": 3}
-                            (reconstruct)                   json.load() ← file
-```
+*Only first cell shown for brevity. All 9 rooms follow the same structure.*
 
 ---
 
-## Data Flow Diagram
+## 6. Error Handling
 
-```mermaid
-flowchart LR
-    subgraph mazeMod ["maze.py (Domain)"]
-        Position["Position(row, col)"]
-        GameState["GameState"]
-        MazeGen["MazeGenerator Protocol"]
-        Solvability["SolvabilityChecker Protocol"]
-        QSource["QuestionSource Protocol"]
-    end
+**General rule:** Expected game situations return result objects. Programmer errors raise exceptions. I/O errors are caught internally by `db.py`.
 
-    subgraph mainMod ["main.py (Engine)"]
-        AsDict["dataclasses.asdict()"]
-        Reconstruct["Position(**d)"]
-        Orchestrate["Game Loop"]
-    end
+| Scenario | Behavior |
+|---|---|
+| Move into wall | `MoveResult(success=False, ...)` |
+| Move out of bounds | `MoveResult(success=False, ...)` |
+| `get_room()` with invalid position | Raises `ValueError` |
+| Answer on room without clog | `AnswerResult(correct=False, clog_cleared=False, energy_change=0, ...)` |
+| `create_maze()` with rows < 2 | Raises `ValueError` |
+| File not found on load | Returns `None` |
+| Corrupted JSON on load | Returns `None` |
+| Disk write failure | Returns `False` |
+| Unrecognized player command | Prints help, returns `GameStatus.IN_PROGRESS` |
 
-    subgraph dbMod ["db.py (Persistence)"]
-        Repo["GameRepository Protocol"]
-        JsonFile["JSON File I/O"]
-    end
+---
 
-    GameState -->|"rich objects"| AsDict
-    AsDict -->|"dict[str, Any]"| Repo
-    Repo -->|"dict[str, Any]"| Reconstruct
-    Reconstruct -->|"rich objects"| GameState
-    Repo --- JsonFile
-```
+## 7. Shared Constants
+
+| Constant | Value |
+|---|---|
+| `DEFAULT_MAZE_ROWS` | `3` |
+| `DEFAULT_MAZE_COLS` | `3` |
+| `DEFAULT_ENERGY` | `100` |
+| `ENERGY_CORRECT_ANSWER` | `+10` |
+| `ENERGY_WRONG_ANSWER` | `-5` |
+| `ENERGY_PHASE_BEAM` | `-50` |
+| `PHASE_BEAM_COST` | `50` |
+| `DEFAULT_SAVE_PATH` | `"savegame.json"` |
+| `SCHEMA_VERSION` | `1` |
+
+---
+
+## 8. Clarifications (Tightening)
+
+- Invariant: Player position is always within `0 <= row < maze.rows` and `0 <= col < maze.cols`.
+- Invariant: Every generated maze must pass DFS solvability from entrance to exit.
+- Invariant: Exactly one entrance and exactly one exit exist in each maze.
+- Invariant: Wall symmetry is preserved between adjacent rooms.
+- Schema drift policy: If any required field is missing or has the wrong type during load, `load_game()` returns `None`.
+- Ownership rule: After `move_player(...)`, `main.py` applies `MoveResult.new_position` to `player.position` only when `MoveResult.success` is `True`.
