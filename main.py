@@ -24,7 +24,6 @@ from maze import (
     Position,
     Room,
     attempt_answer,
-    check_solvability,
     create_maze,
     get_question,
     get_room,
@@ -42,10 +41,6 @@ from db import JsonFileRepository
 DEFAULT_MAZE_ROWS = 3
 DEFAULT_MAZE_COLS = 3
 DEFAULT_ENERGY = 100
-ENERGY_CORRECT_ANSWER = 10
-ENERGY_WRONG_ANSWER = -5
-ENERGY_PHASE_BEAM = -50
-PHASE_BEAM_COST = 50
 DEFAULT_SAVE_PATH = "savegame.json"
 SCHEMA_VERSION = 1
 
@@ -186,12 +181,12 @@ class GameEngine:
         if self._state is None:
             return GameStatus.IN_PROGRESS
 
-        parts = command.strip().lower().split()
-        if not parts:
+        raw_parts = command.strip().split()
+        if not raw_parts:
             print("Type 'help' for available commands.")
             return self._state.status
 
-        verb = parts[0]
+        verb = raw_parts[0].lower()
 
         if verb in ("north", "south", "east", "west"):
             return self._handle_move(verb)
@@ -203,11 +198,11 @@ class GameEngine:
             self._state.status = GameStatus.QUIT
             return GameStatus.QUIT
 
-        if verb == "move" and len(parts) >= 2:
-            return self._handle_move(parts[1])
+        if verb == "move" and len(raw_parts) >= 2:
+            return self._handle_move(raw_parts[1].lower())
 
-        if verb == "answer" and len(parts) >= 2:
-            return self._handle_answer(" ".join(parts[1:]))
+        if verb == "answer" and len(raw_parts) >= 2:
+            return self._handle_answer(" ".join(raw_parts[1:]))
 
         if verb == "beam":
             return self._handle_beam()
@@ -223,6 +218,9 @@ class GameEngine:
         if verb == "help":
             self._print_help()
             return self._state.status
+
+        if self._current_question:
+            return self._handle_answer(command.strip())
 
         print(f"Unknown command: {command}")
         self._print_help()
@@ -244,18 +242,19 @@ class GameEngine:
             room = get_room(self._state.maze, pos)
             open_dirs = [d for d, wall in room.walls.items() if not wall]
 
+            if room.has_clog and self._current_question is None:
+                self._current_question = get_question()
+
             if self._current_question and room.has_clog:
                 print("\nClog detected! Answer this question:")
-            print(f"\n[Room ({pos.row}, {pos.col})] Energy: {self._state.player.energy}")
-            if self._current_question and room.has_clog:
+                print(f"\n[Room ({pos.row}, {pos.col})] Energy: {self._state.player.energy}")
                 print(f"  {self._current_question.prompt}")
                 for letter, choice in zip("abcd", self._current_question.choices):
                     print(f"  {letter}) {choice}")
                 print("Use 'answer <letter>' or 'beam' to clear it.")
             else:
+                print(f"\n[Room ({pos.row}, {pos.col})] Energy: {self._state.player.energy}")
                 print(f"Open passages: {', '.join(open_dirs) if open_dirs else 'none'}")
-                if room.has_clog:
-                    print("This room has a clog!")
 
             try:
                 cmd = input("> ").strip()
@@ -296,7 +295,7 @@ class GameEngine:
             self._current_question = get_question()
 
         letter_map = {l: c for l, c in zip("abcd", self._current_question.choices)}
-        resolved = letter_map.get(answer_text, answer_text)
+        resolved = letter_map.get(answer_text.lower(), answer_text)
 
         result = attempt_answer(
             self._state.maze,
@@ -316,7 +315,6 @@ class GameEngine:
             self._current_question = None
         else:
             self._current_question = get_question()
-            self._present_question()
 
         return self._check_win()
 
@@ -340,19 +338,10 @@ class GameEngine:
             self._state.status = GameStatus.WON
         return self._state.status
 
-    def _present_question(self) -> None:
-        if self._current_question is None:
-            self._current_question = get_question()
-        print(f"\nClog detected! Answer this question:")
-        print(f"  {self._current_question.prompt}")
-        for letter, choice in zip("abcd", self._current_question.choices):
-            print(f"  {letter}) {choice}")
-        print("Use 'answer <letter>' or 'beam' to clear it.")
-
     def _print_help(self) -> None:
         print("Commands:")
         print("  move <north|south|east|west>  - Move in a direction")
-        print("  answer <choice>               - Answer the current question")
+        print("  answer <a|b|c|d>              - Answer the current question")
         print("  beam                          - Use phase beam (-50 energy)")
         print("  save                          - Save game")
         print("  load                          - Load game")
