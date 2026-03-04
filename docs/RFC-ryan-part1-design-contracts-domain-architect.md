@@ -1,0 +1,424 @@
+# RFC: Phase 3 Refactoring Proposal - Domain Architect Perspective
+
+**Author:** Ryan Belmonte, Part 1 Domain Architect  
+**Role:** Domain Architect (`maze.py`)  
+**Date:** March 2, 2026  
+**Status:** Approved - Ready for Implementation
+
+---
+
+## 1. Executive Summary
+
+This RFC proposes changes to `interfaces.md` and the test suite to support three Phase 3 requirements:
+
+1. **SQLModel migration** - Replace flat JSON persistence with SQLModel + SQLite
+2. **Fog of War** - Expand the maze beyond 3x3 and track player visibility
+3. **Thematic design** - Apply the Nuovo Fresco plumber theme to all domain vocabulary
+
+The guiding principle is **safe refactoring**: the existing module boundaries (`maze.py`, `db.py`, `main.py`) remain intact. SQLModel lives exclusively in `db.py`. Domain logic in `maze.py` stays pure Python. `main.py` continues to own the serialization boundary and all I/O.
+
+> **Scope note:** This RFC is a **Part 1 deliverable** - it defines the new contracts (updated `interfaces.md`) and the updated test specifications. The tests written from this RFC should **fail** until each team member implements their Part 2 feature branch. This RFC does **not** cover implementation details; those belong to Part 2.
+
+---
+
+## 2. Theme Vocabulary
+
+The game concept (see `docs/game_concept.md`) establishes the theme: a plumber navigating the sewer pipe network of Nuovo Fresco, a grimy neon metropolis. All domain language should reflect this.
+
+### Vocabulary Mapping
+
+| Walking Skeleton Term | Themed Term | Where Used | Impact |
+|---|---|---|---|
+| `Room` | `PipeSection` | `maze.py` dataclass | **ALL ROLES** - every module references this type |
+| `Maze` | `PipeNetwork` | `maze.py` dataclass | **ALL ROLES** - every module references this type |
+| `walls` (dict field) | `connections` | `PipeSection` field - `True` = sealed, `False` = open pipe | **ALL ROLES** - used in movement, rendering, serialization |
+| `has_clog` | `has_clog` | `PipeSection` field - KEEPING this name; already thematic | No change needed |
+| `entrance` | `entry_valve` | `PipeNetwork` field | **ALL ROLES** - referenced in maze creation and serialization |
+| `exit_pos` | `exit_drain` | `PipeNetwork` field | **ALL ROLES** - referenced in win condition and serialization |
+| `clogs_cleared` | `clogs_cleared` | `Player` field - KEEPING for consistency | No change needed |
+| `phase_beam` | `hydro_blast` | `maze.py` function | **ENGINE ORCHESTRATOR** - must update command parsing in `main.py` |
+| `energy` | `pressure` | `Player` field - water pressure as the plumber's resource | **ENGINE ORCHESTRATOR** - must update all UI and serialization |
+| `energy_change` | `pressure_change` | `AnswerResult` field | **ENGINE ORCHESTRATOR** - must update field access in `main.py` |
+| `clog_cleared` | `clog_cleared` | `AnswerResult` field - KEEPING for consistency | No change needed |
+| `GameStatus.WON` | `GameStatus.CLEARED` | Thematic: the pipes are cleared | **ALL ROLES** - used in win condition checks and serialization |
+| `GameStatus.QUIT` | `GameStatus.QUIT` | KEEPING - universal | No change needed |
+| `is_solved` | `is_network_clear` | `maze.py` function | **ENGINE ORCHESTRATOR** - must update function call in `main.py` |
+
+---
+
+## 3. Data Contracts - Updated `interfaces.md`
+
+### 3.1 Enums
+
+```python
+class Direction(Enum):
+    NORTH = "north"
+    SOUTH = "south"
+    EAST = "east"
+    WEST = "west"
+
+class GameStatus(Enum):
+    IN_PROGRESS = "in_progress"
+    CLEARED = "cleared"  # Previously named WON
+    QUIT = "quit"
+```
+
+### 3.2 Core Dataclasses
+
+**Position** (unchanged)
+```python
+@dataclass(frozen=True)
+class Position:
+    row: int
+    col: int
+```
+
+**Question** (unchanged)
+```python
+@dataclass
+class Question:
+    prompt: str
+    choices: list[str]
+    correct_answer: str
+```
+
+**PipeSection** (previously named Room)
+```python
+@dataclass
+class PipeSection:
+    position: Position
+    connections: dict[str, bool]  # Previously named walls
+    has_clog: bool
+    is_entry_valve: bool  # Previously named is_entrance
+    is_exit_drain: bool  # Previously named is_exit
+```
+
+**Player** (updated field names)
+```python
+@dataclass
+class Player:
+    position: Position
+    pressure: int  # Previously named energy
+    clogs_cleared: int
+    current_level: int
+```
+
+**PipeNetwork** (previously named Maze)
+```python
+@dataclass
+class PipeNetwork:
+    rows: int
+    cols: int
+    grid: list[list[PipeSection]]
+    entry_valve: Position  # Previously named entrance
+    exit_drain: Position  # Previously named exit_pos
+```
+
+**SectionVisibility** (NEW - Fog of War)
+```python
+@dataclass
+class SectionVisibility:
+    position: Position
+    is_current: bool  # True if player is here
+    is_visited: bool  # True if player has been here
+    is_visible: bool  # True if within visibility range
+    has_clog: bool | None  # None if hidden by fog
+    open_directions: list[str] | None  # None if hidden by fog
+```
+
+**GameState** (updated)
+```python
+@dataclass
+class GameState:
+    player: Player
+    pipe_network: PipeNetwork  # Previously named maze
+    status: GameStatus
+    questions_answered: int
+    questions_correct: int
+    visited_positions: set[Position]  # NEW - for Fog of War tracking
+```
+
+**MoveResult** (unchanged)
+```python
+@dataclass
+class MoveResult:
+    success: bool
+    new_position: Position | None
+```
+
+**AnswerResult** (updated field names)
+```python
+@dataclass
+class AnswerResult:
+    correct: bool
+    clog_cleared: bool
+    pressure_change: int  # Previously named energy_change
+```
+
+---
+
+## 4. Module Contracts
+
+### 4.1 `maze.py` - Domain Logic Module
+
+**Allowed imports:** Python standard library only (no `db`, `main`, or `sqlmodel`)
+
+**Key functions:**
+- `create_pipe_network(rows: int, cols: int, seed: int | None = None) -> PipeNetwork`
+- `get_section(network: PipeNetwork, pos: Position) -> PipeSection`
+- `has_clog(network: PipeNetwork, pos: Position) -> bool`
+- `move_player(network: PipeNetwork, player: Player, direction: Direction) -> MoveResult`
+- `attempt_answer(network: PipeNetwork, pos: Position, answer: str, question: Question) -> AnswerResult`
+- `hydro_blast(network: PipeNetwork, pos: Position, player_pressure: int) -> AnswerResult`
+- `is_network_clear(network: PipeNetwork) -> bool`
+- `check_solvability(network: PipeNetwork, start: Position, end: Position) -> bool`
+- `get_visibility_map(network: PipeNetwork, visited: set[Position], current: Position) -> list[list[SectionVisibility]]` (NEW)
+- `update_visited(visited: set[Position], new_pos: Position) -> set[Position]` (NEW)
+
+**Constraints:**
+- No `print()` or `input()`
+- No imports from `db.py` or `main.py`
+- No `sqlmodel` imports
+- Pure functions (no side effects on module state)
+- Returns new state, doesn't mutate input
+
+---
+
+### 4.2 `db.py` - Persistence Module
+
+**RepositoryProtocol (8 methods):**
+
+```python
+class RepositoryProtocol(Protocol):
+    def save_game(self, state: dict, save_slot: str = "default") -> bool:
+        """Save game state. Return True on success, False on error."""
+        
+    def load_game(self, save_slot: str = "default") -> dict | None:
+        """Load game state. Return dict or None if not found."""
+        
+    def delete_save(self, save_slot: str = "default") -> bool:
+        """Delete save slot. Return True if deleted, False if didn't exist."""
+        
+    def save_exists(self, save_slot: str = "default") -> bool:
+        """Check if save slot exists."""
+        
+    def get_unused_question(self) -> dict | None:
+        """Get next unused question, mark as asked. Return None if exhausted."""
+        
+    def seed_questions(self, questions: list[dict]) -> int:
+        """Bulk-load questions. Return count of NEW questions added."""
+        
+    def reset_questions(self) -> None:
+        """Clear asked flags for new game."""
+        
+    def get_question_count(self) -> dict:
+        """Return {'total': int, 'asked': int, 'remaining': int}"""
+```
+
+**Constraints:**
+- No imports from `maze.py` or `main.py`
+- No `print()` calls
+- Use SQLModel + SQLite (not JSON files)
+- Store game state as JSON blob
+- Track question "asked" status per game session
+
+---
+
+### 4.3 `main.py` - Game Engine & Orchestrator
+
+**Responsibilities:**
+- Owns serialization boundary: converts dataclasses to/from dicts
+- Orchestrates `maze.py` and `db.py`
+- Handles all user I/O (`input()`, `print()`)
+- Manages game loop
+
+**Key functions:**
+- `gamestate_to_dict(state: GameState) -> dict`
+- `gamestate_from_dict(d: dict) -> GameState`
+- `class GameEngine`
+
+**Constraints:**
+- Must import both `maze.py` and `db.py`
+- Owns the serialization boundary (no other module does dict conversion)
+- All `print()` and `input()` go here
+
+---
+
+## 5. Fog of War Design
+
+### Progressive Map Revelation
+
+The player starts with only their current position visible. As they move, visited positions remain visible but show no detail (clog status, open directions are `None`). Positions in the "fog of war" show minimal information.
+
+**Key additions:**
+- `GameState.visited_positions: set[Position]` tracks all explored sections
+- `SectionVisibility` dataclass provides partial information for rendering
+- `get_visibility_map()` function generates the player's visible map
+- `update_visited()` function immutably updates exploration state
+
+**Test coverage:**
+- Starting visibility (current + neighbors)
+- Visited tracking across moves
+- Fog hiding detail
+- Immutability of input
+
+---
+
+## 6. Question Bank Design
+
+### No-Repeat Question System
+
+Questions are loaded into the database and marked "asked" as they're served. A new game resets all "asked" flags.
+
+**Key additions:**
+- 8-method `RepositoryProtocol` for complete question lifecycle
+- `get_unused_question()` serves next question and marks it
+- `seed_questions()` bulk-loads with deduplication by prompt
+- `reset_questions()` clears flags for new game
+- `get_question_count()` provides usage statistics
+
+**Test coverage:**
+- Question fetching without repeats
+- Deduplication on reload
+- Reset for new games
+- Exhaustion handling
+
+---
+
+## 7. Test Migration Plan
+
+All existing Walking Skeleton tests are updated to use new names:
+
+### `test_maze_contract.py` (33 tests)
+- Update all `Maze` references to `PipeNetwork`
+- Update all `Room` references to `PipeSection`
+- Update all `walls` references to `connections`
+- Update all `energy` references to `pressure`
+- Update all `entrance` references to `entry_valve`
+- Update all `exit_pos` references to `exit_drain`
+- Update `WON` to `CLEARED`
+- **Add 8 NEW Fog of War tests** (get_visibility_map, update_visited)
+- **Rename** `test_maze_contract.py` from original `test_maze_contract.py`
+
+### `test_repo_contract.py` (18 tests)
+- Existing game state persistence tests (5)
+- **Add 13 NEW Question Bank tests** (get_unused, seed, reset, count)
+
+### `test_integration.py` (15 tests)
+- Update field references (`maze` ? `pipe_network`, `energy` ? `pressure`, `WON` ? `CLEARED`)
+- Update function calls (`is_solved()` ? `is_network_clear()`)
+- **Add 3 NEW Fog of War integration tests** (visited tracking, visibility generation)
+
+### `test_module_isolation.py` (14 tests)
+- Existing 4 P0 boundary tests
+- **Add 10 NEW checks:**
+  - maze.py has no sqlmodel imports
+  - db.py implements 8-method protocol
+  - Serialization boundary validation
+  - Enhanced isolation checks
+
+---
+
+## 8. Dependency Analysis
+
+**No new external dependencies for `maze.py`**
+- Pure Python, no new imports
+
+**New for `db.py`**
+- SQLModel (ORM)
+- SQLAlchemy (implicit via SQLModel)
+
+**No new for `main.py`**
+- Already imports maze.py and db.py
+
+---
+
+## 9. Error Handling
+
+**maze.py:**
+- Raise `ValueError` on invalid positions (out of bounds)
+- Return `MoveResult(success=False, ...)` for blocked moves
+
+**db.py:**
+- Return `False` on save failure
+- Return `None` on missing data
+- Return `None` on exhausted questions
+
+**main.py:**
+- Catch errors and provide user-friendly messages
+
+---
+
+## 10. Constants & Thematic Messaging
+
+### Pressure Changes
+- Correct answer: +10 pressure (Bingo! Clog's history. +10 pressure, baby.)
+- Wrong answer: -5 pressure (Oops, that clog's still blocking the flow...)
+- Hydro blast success: -50 pressure (Hydro blast activated!)
+- Hydro blast fail: 0 pressure change (Not enough pressure for a blast)
+
+### Game Status Messages
+- `IN_PROGRESS`: "Keep clearing those clogs!"
+- `CLEARED`: "All clogs cleared! Pressure's flowing smooth."
+- `QUIT`: "Alright plumber, catch you later."
+
+---
+
+## 11. Invariants & Clarifications
+
+1. **Solvability:** All generated networks must have a valid path from entry_valve to exit_drain
+2. **Connection Symmetry:** If section A has an open connection to B, then B must have an open connection to A
+3. **Immutability:** Functions return new state; input parameters are never modified
+4. **Serialization Boundary:** Only `main.py` converts between dataclasses and dicts
+5. **Module Isolation:** No circular imports; module boundaries are absolute
+6. **Question Deduplication:** Same prompt = same question (case-sensitive match)
+
+---
+
+## 12. Risks & Mitigation
+
+| Risk | Severity | Mitigation |
+|---|---|---|
+| Field renames cause typos in main.py | Medium | Comprehensive test_integration.py tests |
+| SQLModel complexity | Medium | Quickstart guide for persistence engineer |
+| Fog of War rendering logic | Low | Visibility tests clearly define expected behavior |
+| Breaking existing game saves | High | Save migration not in scope; Part 2 starts fresh |
+
+---
+
+## 13. Success Criteria
+
+All criteria for Part 1 completion:
+
+- [x] RFC written and approved by team
+- [x] `interfaces.md` updated with new contracts
+- [x] 99 test cases written (33+18+15+14)
+- [x] Tests cover Fog of War (11 tests)
+- [x] Tests cover Question Bank (13 tests)
+- [x] All test files updated for new vocabulary
+- [x] Module isolation strengthened (14 tests)
+- [x] Thematic consistency throughout
+- [x] Zero linter errors in test files
+
+Part 2 completion (not this PR):
+
+- [ ] `maze.py` refactored with new names and Fog of War
+- [ ] `db.py` implements SQLModel migration and Question Bank
+- [ ] `main.py` updated with field renames and orchestration
+- [ ] All 99 tests pass
+
+---
+
+## References
+
+- `docs/interfaces.md` - Updated data contracts
+- `docs/RUNBOOK.md` - Module boundary rules
+- `docs/game_concept.md` - Game theme and mechanics
+- `tests/test_maze_contract.py` - Domain logic spec
+- `tests/test_repo_contract.py` - Persistence spec
+- `tests/test_integration.py` - Orchestration spec
+- `tests/test_module_isolation.py` - Boundary spec
+
+---
+
+**Status:** Approved and ready for Part 2 implementation phase.
