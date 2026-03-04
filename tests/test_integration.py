@@ -3,7 +3,7 @@
 These tests require both maze.py and db.py to be present.
 They verify that main.py correctly orchestrates the modules together.
 
-Run with:  pytest tests/test_engine_integration.py -v
+Run with: pytest tests/test_engine_integration.py -v
 """
 
 import pytest
