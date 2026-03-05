@@ -350,8 +350,13 @@ def _visible_positions(network: PipeNetwork, visited_pos: set[Position], current
     vis = set(visited_pos)
     vis.add(current)
     for p in list(vis):
-        for n in _neighbors_in_bounds(network.rows, network.cols, p):
-            vis.add(n)
+        section = network.grid[p.row][p.col]
+        for d in Direction:
+            if not section.connections[d.value]:  # open connection only
+                dr, dc = _DELTA[d]
+                nr, nc = p.row + dr, p.col + dc
+                if 0 <= nr < network.rows and 0 <= nc < network.cols:
+                    vis.add(Position(nr, nc))
     return vis
 
 

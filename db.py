@@ -98,8 +98,8 @@ SEED_QUESTIONS: list[dict[str, Any]] = [
     },
     {
         "prompt": "What tool do plumbers use to blast through a stubborn clog?",
-        "choices": ["Hydro jet", "Hammer", "Screwdriver", "Wrench"],
-        "correct_answer": "Hydro jet",
+        "choices": ["Hydro blast", "Hammer", "Screwdriver", "Wrench"],
+        "correct_answer": "Hydro blast",
     },
     {
         "prompt": "What is water pressure measured in?",
