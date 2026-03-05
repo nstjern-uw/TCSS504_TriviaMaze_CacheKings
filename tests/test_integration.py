@@ -151,7 +151,8 @@ def test_process_quit_command(engine: GameEngine) -> None:
 # ---------------------------------------------------------------------------
 
 def test_save_and_load_preserves_state(save_path) -> None:
-    engine = GameEngine(repo=MockRepo(), save_path=save_path)
+    repo = MockRepo()
+    engine = GameEngine(repo=repo, save_path=save_path)
     engine.start_new_game(seed=42)
     state = engine.state
 
@@ -165,7 +166,7 @@ def test_save_and_load_preserves_state(save_path) -> None:
 
     assert engine.save_game() is True
 
-    loaded = GameEngine(repo=MockRepo(), save_path=save_path)
+    loaded = GameEngine(repo=repo, save_path=save_path)
     assert loaded.load_game() is True
 
     original = engine.state
@@ -343,7 +344,8 @@ def test_pressure_changes_on_move(engine: GameEngine) -> None:
 
 def test_save_load_preserves_visited_positions(save_path) -> None:
     """Round-trip save/load preserves the visited_positions set."""
-    engine = GameEngine(repo=MockRepo(), save_path=save_path)
+    repo = MockRepo()
+    engine = GameEngine(repo=repo, save_path=save_path)
     engine.start_new_game(seed=42)
     state = engine.state
 
@@ -358,6 +360,6 @@ def test_save_load_preserves_visited_positions(save_path) -> None:
     visited_before = set(state.visited_positions)
     assert engine.save_game() is True
 
-    loaded = GameEngine(repo=MockRepo(), save_path=save_path)
+    loaded = GameEngine(repo=repo, save_path=save_path)
     assert loaded.load_game() is True
     assert loaded.state.visited_positions == visited_before

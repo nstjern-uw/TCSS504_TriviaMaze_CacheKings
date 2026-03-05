@@ -1,48 +1,66 @@
-"""Game engine for the Trivia Maze walking skeleton.
+"""Game engine for the Nuovo Fresco Pipe Network.
 
 This module is the orchestrator: it initializes the maze, handles
-persistence through db.py, runs the CLI input/output loop, and owns
+persistence through db.py, runs the CLI loop via view.py, and owns
 all dataclass <-> dict conversion.
 
-Dependency rules (RUNBOOK.md):
-- Only module allowed to import other project modules (maze, db).
-- Only module allowed to use print() and input().
+Dependency rules (RUNBOOK.md / interfaces.md):
+- Only module allowed to import other project modules (maze, db, view).
 - Owns the serialization boundary (dataclass <-> dict).
+- All user I/O is delegated to view.py (PipeView).
 """
 
 from __future__ import annotations
 
 from dataclasses import asdict
+from enum import Enum
 from typing import Any
 
 from maze import (
     Direction,
     GameState,
     GameStatus,
-    Maze,
+    PipeNetwork,
+    PipeSection,
     Player,
     Position,
-    Room,
+    Question,
+    SectionVisibility,
     attempt_answer,
-    create_maze,
-    get_question,
-    get_room,
+    create_pipe_network,
+    get_section,
+    get_visibility_map,
     has_clog,
-    is_solved,
+    hydro_blast,
+    is_network_clear,
     move_player,
-    phase_beam,
 )
-from db import JsonFileRepository
+from db import SQLiteRepository, SEED_QUESTIONS
+from view import PipeView
 
 # ---------------------------------------------------------------------------
 # Constants (interfaces.md §7)
 # ---------------------------------------------------------------------------
 
-DEFAULT_MAZE_ROWS = 3
-DEFAULT_MAZE_COLS = 3
-DEFAULT_ENERGY = 100
-DEFAULT_SAVE_PATH = "savegame.json"
-SCHEMA_VERSION = 1
+DEFAULT_MAZE_ROWS = 4
+DEFAULT_MAZE_COLS = 4
+DEFAULT_PRESSURE = 100
+DEFAULT_SAVE_SLOT = "default"
+SCHEMA_VERSION = 2
+
+
+# ---------------------------------------------------------------------------
+# Engine phase — explicit state machine for the game loop
+# ---------------------------------------------------------------------------
+
+class EnginePhase(Enum):
+    """Controls which commands the engine accepts at any moment.
+
+    NAVIGATING: player can move, save, load.
+    BLOCKED:    player hit a clog and must answer or blast.
+    """
+    NAVIGATING = "navigating"
+    BLOCKED = "blocked"
 
 
 # ---------------------------------------------------------------------------
@@ -50,10 +68,17 @@ SCHEMA_VERSION = 1
 # ---------------------------------------------------------------------------
 
 def gamestate_to_dict(state: GameState) -> dict[str, Any]:
-    """Convert a GameState to a JSON-safe dict for persistence."""
+    """Convert a GameState to a JSON-safe dict for persistence.
+
+    visited_positions (a set) is converted to a list of dicts since
+    dataclasses.asdict does not recurse into sets.
+    """
     d = asdict(state)
     d["status"] = state.status.value
     d["schema_version"] = SCHEMA_VERSION
+    d["visited_positions"] = [
+        {"row": p.row, "col": p.col} for p in state.visited_positions
+    ]
     return d
 
 
@@ -67,31 +92,31 @@ def gamestate_from_dict(data: dict[str, Any]) -> GameState | None:
         player_data = data["player"]
         player = Player(
             position=Position(**player_data["position"]),
-            energy=player_data["energy"],
+            pressure=player_data["pressure"],
             clogs_cleared=player_data["clogs_cleared"],
             current_level=player_data["current_level"],
         )
 
-        maze_data = data["maze"]
-        grid: list[list[Room]] = []
-        for row_data in maze_data["grid"]:
-            row_rooms: list[Room] = []
-            for room_data in row_data:
-                row_rooms.append(Room(
-                    position=Position(**room_data["position"]),
-                    walls=room_data["walls"],
-                    has_clog=room_data["has_clog"],
-                    is_entrance=room_data["is_entrance"],
-                    is_exit=room_data["is_exit"],
+        net_data = data["pipe_network"]
+        grid: list[list[PipeSection]] = []
+        for row_data in net_data["grid"]:
+            row_sections: list[PipeSection] = []
+            for sec_data in row_data:
+                row_sections.append(PipeSection(
+                    position=Position(**sec_data["position"]),
+                    connections=sec_data["connections"],
+                    has_clog=sec_data["has_clog"],
+                    is_entry_valve=sec_data["is_entry_valve"],
+                    is_exit_drain=sec_data["is_exit_drain"],
                 ))
-            grid.append(row_rooms)
+            grid.append(row_sections)
 
-        maze_obj = Maze(
-            rows=maze_data["rows"],
-            cols=maze_data["cols"],
+        pipe_network = PipeNetwork(
+            rows=net_data["rows"],
+            cols=net_data["cols"],
             grid=grid,
-            entrance=Position(**maze_data["entrance"]),
-            exit_pos=Position(**maze_data["exit_pos"]),
+            entry_valve=Position(**net_data["entry_valve"]),
+            exit_drain=Position(**net_data["exit_drain"]),
         )
 
         status_raw = data["status"]
@@ -100,12 +125,18 @@ def gamestate_from_dict(data: dict[str, Any]) -> GameState | None:
             else GameStatus(status_raw)
         )
 
+        visited_raw = data.get("visited_positions", [])
+        visited = {Position(**p) for p in visited_raw}
+        if not visited:
+            visited = {player.position}
+
         return GameState(
             player=player,
-            maze=maze_obj,
+            pipe_network=pipe_network,
             status=status,
             questions_answered=data["questions_answered"],
             questions_correct=data["questions_correct"],
+            visited_positions=visited,
         )
     except (KeyError, TypeError, ValueError):
         return None
@@ -116,53 +147,76 @@ def gamestate_from_dict(data: dict[str, Any]) -> GameState | None:
 # ---------------------------------------------------------------------------
 
 class GameEngine:
-    """Orchestrates the game lifecycle: init, commands, save/load, win check."""
+    """Orchestrates the game lifecycle: init, commands, save/load, win check.
+
+    Uses an explicit EnginePhase state machine:
+    - NAVIGATING: movement, save, load allowed.
+    - BLOCKED: answer / blast only (plus universal: quit, save, help).
+    """
 
     def __init__(
         self,
-        repo: JsonFileRepository | None = None,
-        save_path: str = DEFAULT_SAVE_PATH,
+        repo=None,
+        save_path: str = DEFAULT_SAVE_SLOT,
+        view: PipeView | None = None,
     ) -> None:
-        self._repo = repo or JsonFileRepository()
+        self._repo = repo or SQLiteRepository()
         self._save_path = save_path
+        self._view = view or PipeView()
         self._state: GameState | None = None
-        self._current_question = None
+        self._phase = EnginePhase.NAVIGATING
+        self._current_question: Question | None = None
+
+    # -- public properties ---------------------------------------------------
 
     @property
     def state(self) -> GameState | None:
         return self._state
 
+    @property
+    def phase(self) -> EnginePhase:
+        return self._phase
+
     # -- lifecycle -----------------------------------------------------------
 
     def start_new_game(self, seed: int | None = None) -> None:
-        """Initialize a fresh maze and player."""
-        m = create_maze(DEFAULT_MAZE_ROWS, DEFAULT_MAZE_COLS, seed=seed)
+        """Initialize a fresh pipe network and player."""
+        net = create_pipe_network(DEFAULT_MAZE_ROWS, DEFAULT_MAZE_COLS, seed=seed)
         self._state = GameState(
             player=Player(
-                position=m.entrance,
-                energy=DEFAULT_ENERGY,
+                position=net.entry_valve,
+                pressure=DEFAULT_PRESSURE,
                 clogs_cleared=0,
                 current_level=1,
             ),
-            maze=m,
+            pipe_network=net,
             status=GameStatus.IN_PROGRESS,
             questions_answered=0,
             questions_correct=0,
+            visited_positions={net.entry_valve},
         )
+        self._phase = EnginePhase.NAVIGATING
+        self._current_question = None
+
+        if hasattr(self._repo, "seed_questions"):
+            self._repo.seed_questions(SEED_QUESTIONS)
+        if hasattr(self._repo, "reset_questions"):
+            self._repo.reset_questions()
 
     def save_game(self) -> bool:
-        """Persist current game state to JSON via the repository."""
+        """Persist current game state via the repository."""
         if self._state is None:
             return False
         return self._repo.save_game(
-            gamestate_to_dict(self._state), self._save_path
+            gamestate_to_dict(self._state),
+            self._save_path,
         )
 
     def load_game(self) -> bool:
         """Restore game state from a save file.
 
-        Returns False if the file doesn't exist, is corrupted, or fails
-        schema validation.
+        Reconstructs the engine phase from the player's position:
+        if the player is on a clog, re-enter BLOCKED phase.
         """
         data = self._repo.load_game(self._save_path)
         if data is None:
@@ -170,106 +224,127 @@ class GameEngine:
         restored = gamestate_from_dict(data)
         if restored is None:
             return False
+
         self._state = restored
+        self._current_question = None
+
+        if has_clog(self._state.pipe_network, self._state.player.position):
+            self._enter_blocked_phase()
+        else:
+            self._phase = EnginePhase.NAVIGATING
+
         return True
 
-    def process_command(self, command: str) -> GameStatus:
-        """Parse and execute a player command. Returns current game status.
+    # -- command dispatch (phase-gated) --------------------------------------
 
-        Unknown commands print help and return GameStatus.IN_PROGRESS.
+    def process_command(self, command: str) -> GameStatus:
+        """Parse and execute a player command.
+
+        Commands are gated by EnginePhase:
+        - Universal (any phase): quit, save, help
+        - NAVIGATING: directional movement, load
+        - BLOCKED: answer (a/b/c/d), blast
         """
         if self._state is None:
             return GameStatus.IN_PROGRESS
 
         raw_parts = command.strip().split()
         if not raw_parts:
-            print("Type 'help' for available commands.")
+            self._view.render_message("Type 'help' for available commands.")
             return self._state.status
 
         verb = raw_parts[0].lower()
 
-        if verb in ("north", "south", "east", "west"):
-            return self._handle_move(verb)
-
-        if verb in ("a", "b", "c", "d") and self._current_question:
-            return self._handle_answer(verb)
-
+        # --- universal commands (any phase) ---
         if verb == "quit":
             self._state.status = GameStatus.QUIT
             return GameStatus.QUIT
-
-        if verb == "move" and len(raw_parts) >= 2:
-            return self._handle_move(raw_parts[1].lower())
-
-        if verb == "answer" and len(raw_parts) >= 2:
-            return self._handle_answer(" ".join(raw_parts[1:]))
-
-        if verb == "beam":
-            return self._handle_beam()
-
         if verb == "save":
-            print("Game saved." if self.save_game() else "Save failed.")
+            self._view.render_message(
+                "Game saved." if self.save_game() else "Save failed."
+            )
             return self._state.status
-
-        if verb == "load":
-            print("Game loaded." if self.load_game() else "Load failed.")
-            return self._state.status
-
         if verb == "help":
-            self._print_help()
+            self._view.render_help()
             return self._state.status
 
-        if self._current_question:
-            return self._handle_answer(command.strip())
+        _SHORT = {"n": "north", "s": "south", "e": "east", "w": "west"}
 
-        print(f"Unknown command: {command}")
-        self._print_help()
+        # --- NAVIGATING phase ---
+        if self._phase == EnginePhase.NAVIGATING:
+            if verb in ("north", "south", "east", "west"):
+                return self._handle_move(verb)
+            if verb in _SHORT:
+                return self._handle_move(_SHORT[verb])
+            if verb == "move" and len(raw_parts) >= 2:
+                return self._handle_move(raw_parts[1].lower())
+            if verb == "load":
+                self._view.render_message(
+                    "Game loaded." if self.load_game() else "Load failed."
+                )
+                return self._state.status
+
+        # --- BLOCKED phase ---
+        elif self._phase == EnginePhase.BLOCKED:
+            if verb in ("a", "b", "c", "d"):
+                return self._handle_answer(verb)
+            if verb == "answer" and len(raw_parts) >= 2:
+                return self._handle_answer(" ".join(raw_parts[1:]))
+            if verb == "blast":
+                return self._handle_blast()
+
+        self._view.render_message("Can't do that right now. Type 'help'.")
         return self._state.status
 
+    # -- main game loop ------------------------------------------------------
+
     def run(self) -> None:
-        """Main game loop — runs until WON or QUIT."""
+        """Main game loop — runs until CLEARED or QUIT."""
         if self._state is None:
             self.start_new_game()
 
-        print("=== Trivia Maze ===")
-        print("Navigate the maze and clear all clogs to win!")
-        print(f"Energy: {self._state.player.energy}\n")
-        self._print_help()
-        print()
+        self._view.render_welcome()
+        self._view.render_help()
 
         while self._state.status == GameStatus.IN_PROGRESS:
-            pos = self._state.player.position
-            room = get_room(self._state.maze, pos)
-            open_dirs = [d for d, wall in room.walls.items() if not wall]
+            vis_map = get_visibility_map(
+                self._state.pipe_network,
+                self._state.player.position,
+                self._state.visited_positions,
+            )
+            self._view.render_map(
+                vis_map,
+                self._state.pipe_network.rows,
+                self._state.pipe_network.cols,
+                self._state.pipe_network.entry_valve,
+                self._state.pipe_network.exit_drain,
+            )
+            self._view.render_status(
+                self._state.player.position.row,
+                self._state.player.position.col,
+                self._state.player.pressure,
+                self._state.player.clogs_cleared,
+                self._state.player.current_level,
+            )
 
-            if room.has_clog and self._current_question is None:
-                self._current_question = get_question()
+            if self._phase == EnginePhase.BLOCKED and self._current_question:
+                self._view.render_question(
+                    self._current_question.prompt,
+                    self._current_question.choices,
+                )
 
-            if self._current_question and room.has_clog:
-                print("\nClog detected! Answer this question:")
-                print(f"\n[Room ({pos.row}, {pos.col})] Energy: {self._state.player.energy}")
-                print(f"  {self._current_question.prompt}")
-                for letter, choice in zip("abcd", self._current_question.choices):
-                    print(f"  {letter}) {choice}")
-                print("Use 'answer <letter>' or 'beam' to clear it.")
-            else:
-                print(f"\n[Room ({pos.row}, {pos.col})] Energy: {self._state.player.energy}")
-                print(f"Open passages: {', '.join(open_dirs) if open_dirs else 'none'}")
-
-            try:
-                cmd = input("> ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print("\nQuitting...")
-                self._state.status = GameStatus.QUIT
-                break
-
+            cmd = self._view.prompt_command()
             if cmd:
                 self.process_command(cmd)
 
-        if self._state.status == GameStatus.WON:
-            print("\nYou cleared all clogs and won!")
+        if self._state.status == GameStatus.CLEARED:
+            self._view.render_message(
+                "\nAll clogs cleared! Nuovo Fresco flows again. Great work, plumber."
+            )
         elif self._state.status == GameStatus.QUIT:
-            print("\nGoodbye!")
+            self._view.render_message(
+                "\nThe pipes will wait. Goodbye, plumber."
+            )
 
     # -- private handlers ----------------------------------------------------
 
@@ -277,35 +352,56 @@ class GameEngine:
         try:
             direction = Direction(direction_str)
         except ValueError:
-            print(f"Invalid direction: {direction_str}. Use north/south/east/west.")
+            self._view.render_message(
+                f"Invalid direction: {direction_str}. Use north/south/east/west."
+            )
             return self._state.status
 
-        result = move_player(self._state.maze, self._state.player, direction)
-        print(result.message)
+        result = move_player(self._state.pipe_network, self._state.player, direction)
+        self._view.render_message(result.message)
 
         if result.success and result.new_position is not None:
             self._state.player.position = result.new_position
-            if has_clog(self._state.maze, result.new_position):
-                self._current_question = get_question()
+            self._state.visited_positions = self._state.visited_positions | {result.new_position}
+
+            if has_clog(self._state.pipe_network, result.new_position):
+                self._enter_blocked_phase()
 
         return self._check_win()
 
+    def _enter_blocked_phase(self) -> None:
+        """Transition to BLOCKED and fetch a question."""
+        self._phase = EnginePhase.BLOCKED
+        self._fetch_question()
+
+        if self._current_question is None:
+            self._view.render_message(
+                "No questions remain — pressure surge clears the clog!"
+            )
+            section = get_section(self._state.pipe_network, self._state.player.position)
+            section.has_clog = False
+            self._phase = EnginePhase.NAVIGATING
+
     def _handle_answer(self, answer_text: str) -> GameStatus:
         if self._current_question is None:
-            self._current_question = get_question()
+            self._fetch_question()
+            if self._current_question is None:
+                return self._state.status
 
-        letter_map = {l: c for l, c in zip("abcd", self._current_question.choices)}
+        letter_map = {
+            l: c for l, c in zip("abcd", self._current_question.choices)
+        }
         resolved = letter_map.get(answer_text.lower(), answer_text)
 
         result = attempt_answer(
-            self._state.maze,
+            self._state.pipe_network,
             self._state.player.position,
             resolved,
             self._current_question,
         )
-        print(result.message)
+        self._view.render_message(result.message)
 
-        self._state.player.energy += result.energy_change
+        self._state.player.pressure += result.pressure_change
         self._state.questions_answered += 1
 
         if result.correct:
@@ -313,40 +409,47 @@ class GameEngine:
             if result.clog_cleared:
                 self._state.player.clogs_cleared += 1
             self._current_question = None
+            self._phase = EnginePhase.NAVIGATING
         else:
-            self._current_question = get_question()
+            self._fetch_question()
 
         return self._check_win()
 
-    def _handle_beam(self) -> GameStatus:
-        result = phase_beam(
-            self._state.maze,
+    def _handle_blast(self) -> GameStatus:
+        result = hydro_blast(
+            self._state.pipe_network,
             self._state.player.position,
-            self._state.player.energy,
+            self._state.player.pressure,
         )
-        print(result.message)
+        self._view.render_message(result.message)
 
-        self._state.player.energy += result.energy_change
+        self._state.player.pressure += result.pressure_change
         if result.clog_cleared:
             self._state.player.clogs_cleared += 1
             self._current_question = None
+            self._phase = EnginePhase.NAVIGATING
 
         return self._check_win()
 
-    def _check_win(self) -> GameStatus:
-        if self._state and is_solved(self._state.maze):
-            self._state.status = GameStatus.WON
-        return self._state.status
+    def _fetch_question(self) -> None:
+        """Get an unused question from the repo. Falls back to None
+        (triggering auto-clear) if the repo has no question bank or
+        all questions are exhausted."""
+        if hasattr(self._repo, "get_unused_question"):
+            q_dict = self._repo.get_unused_question()
+            if q_dict is not None:
+                self._current_question = Question(
+                    prompt=q_dict["prompt"],
+                    choices=q_dict["choices"],
+                    correct_answer=q_dict["correct_answer"],
+                )
+                return
+        self._current_question = None
 
-    def _print_help(self) -> None:
-        print("Commands:")
-        print("  move <north|south|east|west>  - Move in a direction")
-        print("  answer <a|b|c|d>              - Answer the current question")
-        print("  beam                          - Use phase beam (-50 energy)")
-        print("  save                          - Save game")
-        print("  load                          - Load game")
-        print("  quit                          - Quit game")
-        print("  help                          - Show this help")
+    def _check_win(self) -> GameStatus:
+        if self._state and is_network_clear(self._state.pipe_network):
+            self._state.status = GameStatus.CLEARED
+        return self._state.status
 
 
 # ---------------------------------------------------------------------------
