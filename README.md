@@ -1,1 +1,11 @@
 # tcss504-quiz-game
+
+Team Name: Cache Kings  
+Team Members: Liam Sipp, Nick Stjern, Ryan Belmonte
+
+
+#### Part 4: AI Code Review & The Final Arbiter
+
+Our team used Claude Opus 4.6 Max to audit the Nuovo Fresco Pipe Network codebase for separation of concerns by prompting it to act as a Senior Staff Engineer with the instruction: "Review this Python codebase for strict separation of concerns. Did any database logic leak into the maze logic? Suggest one concrete refactoring improvement." The AI found no database logic leaks into the maze logic and came back with two refactoring suggestions. The first was about moving `SEED_QUESTIONS` out of `db.py` and into `main.py` (or a dedicated `questions.py`/`config.py` module), calling it a "subtle violation" of separation of concerns since the persistence layer should be content-agnostic and not own game data. The second flagged the `hasattr` guards in `main.py` as undermining the `RepositoryProtocol` contract, suggesting that any conforming repository should just implement the full protocol instead of relying on runtime duck-typing fallbacks.
+
+We looked at both suggestions and decided to pass on them. Neither change would actually affect how the game runs — and the AI itself admitted these are architectural preferences, not real bugs. A big part of our decision came down to the grading rubric: making changes that drift from what the assignment explicitly asked for is a risk we weren't willing to take. The assignment spec for the Persistence Engineer role literally says "implement a Question Bank table and populate it with seed data," so `db.py` is a perfectly reasonable and intentional place for that content in a 4-file project — and one that directly satisfies the rubric. The `hasattr` guards are also intentional — they let the engine fail gracefully when a lightweight test mock is injected, which is a smart and practical design choice. Invoking the Final Arbiter Rule, we used our own engineering judgment here: these kinds of suggestions matter a lot in large, multi-contributor codebases, but at this scale, they're nitpicks that would just create unnecessary churn without any real payoff.
