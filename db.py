@@ -13,7 +13,7 @@ Run with:  pytest tests/test_repo_contract.py -v
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import func
@@ -181,6 +181,106 @@ SEED_QUESTIONS: list[dict[str, Any]] = [
         "choices": ["Water can flow through", "The pipe is broken", "The valve is locked", "The pipe is empty"],
         "correct_answer": "Water can flow through",
     },
+    {
+        "prompt": "What does 'Nuovo Fresco' roughly mean in Italian?",
+        "choices": ["New Fresh", "Old Pipe", "Dark Water", "Broken Drain"],
+        "correct_answer": "New Fresh",
+    },
+    {
+        "prompt": "Which of these is a common cause of a clogged drain?",
+        "choices": ["Hair and grease buildup", "Too much water pressure", "Cold temperatures", "Open valves"],
+        "correct_answer": "Hair and grease buildup",
+    },
+    {
+        "prompt": "What shape is a standard pipe cross-section?",
+        "choices": ["Circular", "Square", "Triangular", "Hexagonal"],
+        "correct_answer": "Circular",
+    },
+    {
+        "prompt": "What does a pressure gauge measure?",
+        "choices": ["The force of fluid in a pipe", "The temperature of water", "The speed of a pump", "The length of a pipe"],
+        "correct_answer": "The force of fluid in a pipe",
+    },
+    {
+        "prompt": "In Italian, what does 'acqua' mean?",
+        "choices": ["Water", "Fire", "Earth", "Air"],
+        "correct_answer": "Water",
+    },
+    {
+        "prompt": "What is the purpose of a pipe fitting called an elbow?",
+        "choices": ["To change the direction of flow", "To increase water pressure", "To filter sediment", "To measure flow rate"],
+        "correct_answer": "To change the direction of flow",
+    },
+    {
+        "prompt": "What does PSI stand for in plumbing?",
+        "choices": ["Pounds per Square Inch", "Pipe System Index", "Pressure Supply Indicator", "Plumbing Standard Interface"],
+        "correct_answer": "Pounds per Square Inch",
+    },
+    {
+        "prompt": "Which tool is used to cut through a metal pipe?",
+        "choices": ["Pipe cutter", "Pipe wrench", "Plunger", "Snake"],
+        "correct_answer": "Pipe cutter",
+    },
+    {
+        "prompt": "What is a plumber's snake used for?",
+        "choices": ["Clearing deep clogs in pipes", "Measuring pipe diameter", "Sealing pipe joints", "Cutting pipes to length"],
+        "correct_answer": "Clearing deep clogs in pipes",
+    },
+    {
+        "prompt": "In Italian, what does 'tubo' mean?",
+        "choices": ["Pipe", "Water", "Valve", "Drain"],
+        "correct_answer": "Pipe",
+    },
+    {
+        "prompt": "What is the main advantage of copper pipes over plastic pipes?",
+        "choices": ["Longer lifespan and heat resistance", "Cheaper cost", "Lighter weight", "Easier to cut"],
+        "correct_answer": "Longer lifespan and heat resistance",
+    },
+    {
+        "prompt": "What happens to water when it freezes inside a pipe?",
+        "choices": ["It expands and can crack the pipe", "It contracts and flows faster", "It turns to steam", "It dissolves the pipe material"],
+        "correct_answer": "It expands and can crack the pipe",
+    },
+    {
+        "prompt": "What is the function of a P-trap in a drain pipe?",
+        "choices": ["Holds water to block sewer gases", "Increases water pressure", "Filters debris", "Measures flow rate"],
+        "correct_answer": "Holds water to block sewer gases",
+    },
+    {
+        "prompt": "In Italian, what does 'valvola' mean?",
+        "choices": ["Valve", "Pipe", "Drain", "Pump"],
+        "correct_answer": "Valve",
+    },
+    {
+        "prompt": "What is the typical residential water pressure in PSI?",
+        "choices": ["40–80 PSI", "5–10 PSI", "200–300 PSI", "1–2 PSI"],
+        "correct_answer": "40–80 PSI",
+    },
+    {
+        "prompt": "What does a backflow preventer do in a pipe system?",
+        "choices": ["Stops water from flowing in the wrong direction", "Increases water pressure", "Filters sediment", "Measures water temperature"],
+        "correct_answer": "Stops water from flowing in the wrong direction",
+    },
+    {
+        "prompt": "What is a 'manifold' in a plumbing system?",
+        "choices": ["A fitting that splits one pipe into multiple branches", "A type of drain cover", "A pressure relief device", "A pipe insulation material"],
+        "correct_answer": "A fitting that splits one pipe into multiple branches",
+    },
+    {
+        "prompt": "In Italian, what does 'scarico' mean?",
+        "choices": ["Drain", "Pipe", "Valve", "Pressure"],
+        "correct_answer": "Drain",
+    },
+    {
+        "prompt": "What material was most commonly used for water pipes in ancient Rome?",
+        "choices": ["Lead", "Copper", "PVC plastic", "Iron"],
+        "correct_answer": "Lead",
+    },
+    {
+        "prompt": "What is the purpose of pipe insulation?",
+        "choices": ["Prevent heat loss and protect against freezing", "Increase water pressure", "Filter sediment", "Reduce pipe diameter"],
+        "correct_answer": "Prevent heat loss and protect against freezing",
+    },
 ]
 
 
@@ -235,14 +335,14 @@ class SQLiteRepository:
                 if existing:
                     # Update the existing row
                     existing.state_json = state_json
-                    existing.updated_at = datetime.utcnow()
+                    existing.updated_at = datetime.now(timezone.utc)
                     session.add(existing)
                 else:
                     # Insert a new row
                     session.add(SaveGame(
                         save_slot=save_slot,
                         state_json=state_json,
-                        updated_at=datetime.utcnow(),
+                        updated_at=datetime.now(timezone.utc),
                     ))
                 session.commit()
             return True
@@ -284,6 +384,21 @@ class SQLiteRepository:
                 return session.get(SaveGame, save_slot) is not None
         except Exception:
             return False
+
+    def list_save_slots(self) -> list[str]:
+        """Return all existing save slot names, ordered by most recently updated.
+
+        Returns an empty list if no saves exist or on error.
+        Useful for GUI load-game menus that need to enumerate available slots.
+        """
+        try:
+            with Session(self._engine) as session:
+                rows = session.exec(
+                    select(SaveGame).order_by(SaveGame.updated_at.desc())
+                ).all()
+                return [row.save_slot for row in rows]
+        except Exception:
+            return []
 
     # ------------------------------------------------------------------
     # Question bank management
