@@ -98,6 +98,134 @@ class MazeCanvas(QWidget):
                 rect = QRectF(x, y, cell_size, cell_size)
                 self._draw_cell(painter, rect, cell)
 
+        self._draw_corner_fills(painter, origin_x, origin_y, cell_size)
+
+    def _cell_stripe_thickness(self, cell: VisibleCell, cell_size: float) -> float:
+        """Compute the highlight stripe thickness for a cell, matching _draw_cell."""
+        pad = 5.0
+        closed_n = cell.north_open is False or not cell.is_visible
+        closed_s = cell.south_open is False or not cell.is_visible
+        inset_h = cell_size - (pad if closed_n else 0) - (pad if closed_s else 0)
+        return max(4.0, inset_h * 0.14)
+
+    def _draw_corner_fills(
+        self,
+        painter: QPainter,
+        origin_x: float,
+        origin_y: float,
+        cell_size: float,
+    ) -> None:
+        """Fill corner highlights where walls from neighboring cells meet.
+
+        Positioned 5px inward from the shared edges so the highlight
+        aligns with the neighbor stripe positions, with border lines
+        on the two outward-facing sides to match the wall framing.
+        """
+        rows = len(self._cells)
+        cols = len(self._cells[0])
+        highlight_color = QColor(255, 255, 255, 55)
+        border_pen = QPen(QColor("#050507"), 2)
+        pad = 5.0
+
+        for r in range(rows):
+            for c in range(cols):
+                cell = self._cells[r][c]
+                if not cell.is_visible:
+                    continue
+
+                cx = origin_x + c * cell_size
+                cy = origin_y + r * cell_size
+
+                # NW corner: passage goes west and north
+                if cell.north_open is True and cell.west_open is True:
+                    if c > 0 and r > 0:
+                        w_cell = self._cells[r][c - 1]
+                        n_cell = self._cells[r - 1][c]
+                        if w_cell.north_open is False and n_cell.west_open is False:
+                            cw = self._cell_stripe_thickness(n_cell, cell_size)
+                            ch = self._cell_stripe_thickness(w_cell, cell_size)
+                            w_outer, _ = self._cell_colors(w_cell)
+                            n_outer, _ = self._cell_colors(n_cell)
+                            painter.fillRect(QRectF(cx, cy, pad, pad + ch), w_outer)
+                            painter.fillRect(QRectF(cx, cy, pad + cw, pad), n_outer)
+                            painter.fillRect(QRectF(cx + pad, cy + pad, cw, ch), highlight_color)
+                            painter.setPen(border_pen)
+                            painter.drawLine(QPointF(cx, cy), QPointF(cx, cy + pad))
+                            painter.drawLine(QPointF(cx, cy), QPointF(cx + pad, cy))
+
+                # NE corner: passage goes east and north
+                if cell.north_open is True and cell.east_open is True:
+                    if c < cols - 1 and r > 0:
+                        e_cell = self._cells[r][c + 1]
+                        n_cell = self._cells[r - 1][c]
+                        if e_cell.north_open is False and n_cell.east_open is False:
+                            cw = self._cell_stripe_thickness(n_cell, cell_size)
+                            ch = self._cell_stripe_thickness(e_cell, cell_size)
+                            e_outer, _ = self._cell_colors(e_cell)
+                            n_outer, _ = self._cell_colors(n_cell)
+                            rx = cx + cell_size - pad
+                            painter.fillRect(QRectF(rx, cy, pad, pad + ch), e_outer)
+                            painter.fillRect(QRectF(rx - cw, cy, pad + cw, pad), n_outer)
+                            painter.fillRect(QRectF(rx - cw, cy + pad, cw, ch), highlight_color)
+                            painter.setPen(border_pen)
+                            painter.drawLine(
+                                QPointF(cx + cell_size, cy),
+                                QPointF(cx + cell_size, cy + pad),
+                            )
+                            painter.drawLine(
+                                QPointF(cx + cell_size - pad, cy),
+                                QPointF(cx + cell_size, cy),
+                            )
+
+                # SW corner: passage goes west and south
+                if cell.south_open is True and cell.west_open is True:
+                    if c > 0 and r < rows - 1:
+                        w_cell = self._cells[r][c - 1]
+                        s_cell = self._cells[r + 1][c]
+                        if w_cell.south_open is False and s_cell.west_open is False:
+                            cw = self._cell_stripe_thickness(s_cell, cell_size)
+                            ch = self._cell_stripe_thickness(w_cell, cell_size)
+                            w_outer, _ = self._cell_colors(w_cell)
+                            s_outer, _ = self._cell_colors(s_cell)
+                            by = cy + cell_size - pad
+                            painter.fillRect(QRectF(cx, by - ch, pad, pad + ch), w_outer)
+                            painter.fillRect(QRectF(cx, by, pad + cw, pad), s_outer)
+                            painter.fillRect(QRectF(cx + pad, by - ch, cw, ch), highlight_color)
+                            painter.setPen(border_pen)
+                            painter.drawLine(
+                                QPointF(cx, cy + cell_size - pad),
+                                QPointF(cx, cy + cell_size),
+                            )
+                            painter.drawLine(
+                                QPointF(cx, cy + cell_size),
+                                QPointF(cx + pad, cy + cell_size),
+                            )
+
+                # SE corner: passage goes east and south
+                if cell.south_open is True and cell.east_open is True:
+                    if c < cols - 1 and r < rows - 1:
+                        e_cell = self._cells[r][c + 1]
+                        s_cell = self._cells[r + 1][c]
+                        if e_cell.south_open is False and s_cell.east_open is False:
+                            cw = self._cell_stripe_thickness(s_cell, cell_size)
+                            ch = self._cell_stripe_thickness(e_cell, cell_size)
+                            e_outer, _ = self._cell_colors(e_cell)
+                            s_outer, _ = self._cell_colors(s_cell)
+                            rx = cx + cell_size - pad
+                            by = cy + cell_size - pad
+                            painter.fillRect(QRectF(rx, by - ch, pad, pad + ch), e_outer)
+                            painter.fillRect(QRectF(rx - cw, by, pad + cw, pad), s_outer)
+                            painter.fillRect(QRectF(rx - cw, by - ch, cw, ch), highlight_color)
+                            painter.setPen(border_pen)
+                            painter.drawLine(
+                                QPointF(cx + cell_size, cy + cell_size - pad),
+                                QPointF(cx + cell_size, cy + cell_size),
+                            )
+                            painter.drawLine(
+                                QPointF(cx + cell_size - pad, cy + cell_size),
+                                QPointF(cx + cell_size, cy + cell_size),
+                            )
+
     def _draw_backdrop(self, painter: QPainter) -> None:
         painter.save()
 
