@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QBrush, QColor, QFont, QPainter, QPen
+from PyQt6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import QWidget
 
 from qt_models import VisibleCell
@@ -151,25 +151,67 @@ class MazeCanvas(QWidget):
 
     def _draw_cell(self, painter: QPainter, rect: QRectF, cell: VisibleCell) -> None:
         painter.save()
+        painter.setClipRect(rect)
 
         outer_fill, inner_fill = self._cell_colors(cell)
 
         painter.setBrush(QBrush(outer_fill))
-        painter.setPen(QPen(QColor("#050507"), 2))
+        painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRect(rect)
 
-        inset = rect.adjusted(5, 5, -5, -5)
+        closed_n = cell.north_open is False or not cell.is_visible
+        closed_s = cell.south_open is False or not cell.is_visible
+        closed_w = cell.west_open is False or not cell.is_visible
+        closed_e = cell.east_open is False or not cell.is_visible
+
+        inset = rect.adjusted(
+            5 if closed_w else 0,
+            5 if closed_n else 0,
+            -5 if closed_e else 0,
+            -5 if closed_s else 0,
+        )
         painter.setBrush(QBrush(inner_fill))
-        painter.setPen(QPen(QColor("#000000"), 1))
+        painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRect(inset)
 
-        highlight = QRectF(
-            inset.left(),
-            inset.top(),
-            inset.width(),
-            max(4.0, inset.height() * 0.14),
-        )
-        painter.fillRect(highlight, QColor(255, 255, 255, 40))
+        border_pen = QPen(QColor("#050507"), 2)
+        painter.setPen(border_pen)
+        if closed_n:
+            painter.drawLine(QPointF(rect.left(), rect.top()), QPointF(rect.right(), rect.top()))
+        if closed_s:
+            painter.drawLine(QPointF(rect.left(), rect.bottom()), QPointF(rect.right(), rect.bottom()))
+        if closed_w:
+            painter.drawLine(QPointF(rect.left(), rect.top()), QPointF(rect.left(), rect.bottom()))
+        if closed_e:
+            painter.drawLine(QPointF(rect.right(), rect.top()), QPointF(rect.right(), rect.bottom()))
+
+        if cell.is_visible:
+            highlight_color = QColor(255, 255, 255, 55)
+            thickness = max(4.0, inset.height() * 0.14)
+            path = QPainterPath()
+            path.setFillRule(Qt.FillRule.WindingFill)
+            if cell.north_open is False:
+                path.addRect(QRectF(
+                    inset.left(), inset.top(),
+                    inset.width(), thickness,
+                ))
+            if cell.south_open is False:
+                path.addRect(QRectF(
+                    inset.left(), inset.bottom() - thickness,
+                    inset.width(), thickness,
+                ))
+            if cell.west_open is False:
+                path.addRect(QRectF(
+                    inset.left(), inset.top(),
+                    thickness, inset.height(),
+                ))
+            if cell.east_open is False:
+                path.addRect(QRectF(
+                    inset.right() - thickness, inset.top(),
+                    thickness, inset.height(),
+                ))
+            if not path.isEmpty():
+                painter.fillPath(path, highlight_color)
 
         if cell.is_visible and cell.has_clog:
             self._draw_hazard_stripes(painter, inset)
