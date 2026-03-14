@@ -177,6 +177,44 @@ class GameEngine:
     def phase(self) -> EnginePhase:
         return self._phase
 
+    # -- display state (gui-design-proposal-qt §4.5) -------------------------
+
+    def get_display_state(self) -> dict[str, Any] | None:
+        """Return everything the view layer needs to render one frame.
+
+        Returns None if no game is active. The Qt controller calls this
+        after each process_command() to get a fresh snapshot for rendering.
+        The view never reaches into private engine fields — this method
+        is the single data gateway.
+        """
+        if self._state is None:
+            return None
+
+        vis_map = get_visibility_map(
+            self._state.pipe_network,
+            self._state.player.position,
+            self._state.visited_positions,
+        )
+
+        return {
+            "vis_grid": vis_map,
+            "rows": self._state.pipe_network.rows,
+            "cols": self._state.pipe_network.cols,
+            "entry_valve": self._state.pipe_network.entry_valve,
+            "exit_drain": self._state.pipe_network.exit_drain,
+            "player_row": self._state.player.position.row,
+            "player_col": self._state.player.position.col,
+            "pressure": self._state.player.pressure,
+            "clogs_cleared": self._state.player.clogs_cleared,
+            "level": self._state.player.current_level,
+            "phase": self._phase.value,
+            "status": self._state.status.value,
+            "question": {
+                "prompt": self._current_question.prompt,
+                "choices": self._current_question.choices,
+            } if self._current_question else None,
+        }
+
     # -- lifecycle -----------------------------------------------------------
 
     def start_new_game(self, seed: int | None = None) -> None:
@@ -346,6 +384,35 @@ class GameEngine:
                 "\nThe pipes will wait. Goodbye, plumber."
             )
 
+    def run_qt(self) -> None:
+        """Launch the Qt GUI using the bridge-view pattern.
+
+        Swaps self._view to a QtPipeView bridge so that all existing
+        render_*() calls in process_command() store data instead of
+        printing.  The Qt controller (qt_controller.QtGameWindow) owns
+        the window, key events, and repaint cycle — it reads from
+        get_display_state() and the bridge after each command.
+
+        CLI run() is unaffected; this is a parallel entry path.
+        """
+        from PyQt6.QtWidgets import QApplication
+        from qt_bridge_view import QtPipeView
+        import sys
+
+        if self._state is None:
+            self.start_new_game()
+
+        self._view = QtPipeView()
+        self._view.render_welcome()
+
+        app = QApplication(sys.argv)
+
+        from qt_controller import QtGameWindow
+        window = QtGameWindow(engine=self)
+        window.show()
+
+        app.exec()
+
     # -- private handlers ----------------------------------------------------
 
     def _handle_move(self, direction_str: str) -> GameStatus:
@@ -457,5 +524,11 @@ class GameEngine:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    engine = GameEngine()
-    engine.run()
+    import sys
+
+    if "--qt" in sys.argv:
+        engine = GameEngine()
+        engine.run_qt()
+    else:
+        engine = GameEngine()
+        engine.run()

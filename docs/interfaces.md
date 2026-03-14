@@ -49,12 +49,12 @@ class Question:
     correct_answer: str
 
 @dataclass
-class Room:
+class PipeSection:
     position: Position
-    walls: dict[str, bool]   # {"north": True, "south": False, ...}
-    has_clog: bool
-    is_entrance: bool
-    is_exit: bool
+    connections: dict[str, bool]   # {"north": True, "south": False, ...}
+    has_clog: bool                 # True = sealed, False = open pipe
+    is_entry_valve: bool
+    is_exit_drain: bool
 
 @dataclass
 class Player:
