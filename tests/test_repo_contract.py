@@ -16,6 +16,8 @@ Run with:  pytest tests/test_repo_contract.py -v
 import copy
 import pytest
 
+from db import SEED_QUESTIONS
+
 
 # ---------------------------------------------------------------------------
 # MockRepository — implements the 8-method RepositoryProtocol in-memory
@@ -245,3 +247,47 @@ class TestQuestionBank:
     def test_get_question_count_keys(self, repo):
         counts = repo.get_question_count()
         assert set(counts.keys()) == {"total", "asked", "remaining"}
+
+
+# ===========================================================================
+# SEED_QUESTIONS structural integrity (4 tests)
+# ===========================================================================
+
+class TestSeedQuestionsIntegrity:
+    """Validates that every entry in SEED_QUESTIONS is structurally correct.
+
+    These tests catch malformed entries (empty prompts, wrong choice counts,
+    mismatched correct answers) before they reach the game or the database.
+    """
+
+    def test_no_empty_prompts(self) -> None:
+        for i, q in enumerate(SEED_QUESTIONS):
+            assert q.get("prompt", "").strip(), (
+                f"SEED_QUESTIONS[{i}] has an empty or missing prompt"
+            )
+
+    def test_exactly_four_choices(self) -> None:
+        for i, q in enumerate(SEED_QUESTIONS):
+            choices = q.get("choices", [])
+            assert len(choices) == 4, (
+                f"SEED_QUESTIONS[{i}] has {len(choices)} choices, expected 4"
+            )
+
+    def test_correct_answer_in_choices(self) -> None:
+        for i, q in enumerate(SEED_QUESTIONS):
+            assert q.get("correct_answer") in q.get("choices", []), (
+                f"SEED_QUESTIONS[{i}] correct_answer '{q.get('correct_answer')}' "
+                f"not found in choices"
+            )
+
+    def test_no_duplicate_prompts(self) -> None:
+        prompts = [q["prompt"] for q in SEED_QUESTIONS]
+        seen: set[str] = set()
+        duplicates: list[str] = []
+        for p in prompts:
+            if p in seen:
+                duplicates.append(p)
+            seen.add(p)
+        assert not duplicates, (
+            f"Duplicate prompts found in SEED_QUESTIONS: {duplicates}"
+        )

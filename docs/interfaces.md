@@ -169,6 +169,13 @@ class RepositoryProtocol(Protocol):
 
     def get_question_count(self) -> dict:
         """Return {'total': int, 'asked': int, 'remaining': int}."""
+
+    def list_save_slots(self) -> list[str]:
+        """Return all save slot names ordered by most recently updated.
+        Returns an empty list if no saves exist or on error.
+        Intended for GUI load-game menus that need to enumerate available slots.
+        Note: this method is implemented on SQLiteRepository but is not part of
+        the core RepositoryProtocol — mock implementations do not need to provide it."""
 ```
 
 ### GameEngineProtocol (`main.py`)
