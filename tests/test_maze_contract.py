@@ -138,6 +138,17 @@ def test_create_pipe_network_invalid_size() -> None:
         create_pipe_network(1, 1)
 
 
+def test_create_pipe_network_minimum_size() -> None:
+    """2x2 is the minimum valid size — must generate, be solvable, and have one entry and one exit."""
+    net = create_pipe_network(2, 2, seed=1)
+    assert net.rows == 2
+    assert net.cols == 2
+    all_sections = [s for row in net.grid for s in row]
+    assert sum(1 for s in all_sections if s.is_entry_valve) == 1
+    assert sum(1 for s in all_sections if s.is_exit_drain) == 1
+    assert check_solvability(net, net.entry_valve, net.exit_drain) is True
+
+
 def test_create_pipe_network_connection_symmetry(seeded_network: PipeNetwork) -> None:
     """If section A's south connection is open, section B's north connection must also be open."""
     opposite = {
@@ -234,6 +245,44 @@ def test_move_does_not_mutate_player(seeded_network: PipeNetwork, player_at_entr
     assert player_at_entry.position == original_position
 
 
+def test_move_north_from_top_row_always_fails(seeded_network: PipeNetwork) -> None:
+    """Moving north from any section in row 0 is always out of bounds."""
+    for c in range(seeded_network.cols):
+        player = Player(position=Position(0, c), pressure=100, clogs_cleared=0, current_level=1)
+        result = move_player(seeded_network, player, Direction.NORTH)
+        assert result.success is False, f"Move north from (0,{c}) should fail"
+        assert result.new_position is None
+
+
+def test_move_west_from_left_column_always_fails(seeded_network: PipeNetwork) -> None:
+    """Moving west from any section in column 0 is always out of bounds."""
+    for r in range(seeded_network.rows):
+        player = Player(position=Position(r, 0), pressure=100, clogs_cleared=0, current_level=1)
+        result = move_player(seeded_network, player, Direction.WEST)
+        assert result.success is False, f"Move west from ({r},0) should fail"
+        assert result.new_position is None
+
+
+def test_move_south_from_bottom_row_always_fails(seeded_network: PipeNetwork) -> None:
+    """Moving south from any section in the last row is always out of bounds."""
+    last_row = seeded_network.rows - 1
+    for c in range(seeded_network.cols):
+        player = Player(position=Position(last_row, c), pressure=100, clogs_cleared=0, current_level=1)
+        result = move_player(seeded_network, player, Direction.SOUTH)
+        assert result.success is False, f"Move south from ({last_row},{c}) should fail"
+        assert result.new_position is None
+
+
+def test_move_east_from_right_column_always_fails(seeded_network: PipeNetwork) -> None:
+    """Moving east from any section in the last column is always out of bounds."""
+    last_col = seeded_network.cols - 1
+    for r in range(seeded_network.rows):
+        player = Player(position=Position(r, last_col), pressure=100, clogs_cleared=0, current_level=1)
+        result = move_player(seeded_network, player, Direction.EAST)
+        assert result.success is False, f"Move east from ({r},{last_col}) should fail"
+        assert result.new_position is None
+
+
 # ---------------------------------------------------------------------------
 # get_section / has_clog
 # ---------------------------------------------------------------------------
@@ -308,6 +357,18 @@ def test_answer_no_clog_section(seeded_network: PipeNetwork, sample_question: Qu
     assert result.pressure_change == 0
 
 
+def test_attempt_answer_empty_string(
+    seeded_network: PipeNetwork,
+    clog_section_position: Position,
+    sample_question: Question,
+) -> None:
+    """An empty string answer is treated as wrong — clog stays, pressure penalty applies."""
+    result = attempt_answer(seeded_network, clog_section_position, "", sample_question)
+    assert result.correct is False
+    assert result.clog_cleared is False
+    assert has_clog(seeded_network, clog_section_position) is True
+
+
 # ---------------------------------------------------------------------------
 # is_network_clear / check_solvability
 # ---------------------------------------------------------------------------
@@ -343,6 +404,34 @@ def test_solvability_false() -> None:
     assert check_solvability(net, net.entry_valve, net.exit_drain) is False
 
 
+def test_check_solvability_unaffected_by_clogs() -> None:
+    """Clearing a clog does not affect path connectivity — solvability depends only on connections."""
+    net = create_pipe_network(3, 3, seed=42)
+    assert check_solvability(net, net.entry_valve, net.exit_drain) is True
+    for row in net.grid:
+        for section in row:
+            section.has_clog = False
+    assert check_solvability(net, net.entry_valve, net.exit_drain) is True
+
+
+def test_check_solvability_larger_networks() -> None:
+    """check_solvability works correctly for 5x5 and 6x6 networks."""
+    for size, seed in [(5, 7), (6, 13)]:
+        net = create_pipe_network(size, size, seed=seed)
+        assert check_solvability(net, net.entry_valve, net.exit_drain) is True, (
+            f"Expected solvable {size}x{size} network with seed={seed}"
+        )
+
+
+def test_create_pipe_network_always_solvable_multiple_seeds() -> None:
+    """create_pipe_network guarantees solvability across a range of seeds."""
+    for seed in range(10):
+        net = create_pipe_network(4, 4, seed=seed)
+        assert check_solvability(net, net.entry_valve, net.exit_drain) is True, (
+            f"Network with seed={seed} was not solvable"
+        )
+
+
 # ---------------------------------------------------------------------------
 # hydro_blast
 # ---------------------------------------------------------------------------
@@ -363,6 +452,33 @@ def test_hydro_blast_insufficient_pressure(
     assert result.clog_cleared is False
     assert result.pressure_change == 0
     assert has_clog(seeded_network, clog_section_position) is True
+
+
+def test_hydro_blast_exactly_at_threshold(
+    seeded_network: PipeNetwork, clog_section_position: Position
+) -> None:
+    """Exactly 50 pressure is the minimum required — blast should succeed."""
+    result = hydro_blast(seeded_network, clog_section_position, player_pressure=50)
+    assert result.clog_cleared is True
+    assert result.pressure_change == -50
+    assert has_clog(seeded_network, clog_section_position) is False
+
+
+def test_hydro_blast_one_below_threshold(
+    seeded_network: PipeNetwork, clog_section_position: Position
+) -> None:
+    """49 pressure is one below the minimum — blast should fail."""
+    result = hydro_blast(seeded_network, clog_section_position, player_pressure=49)
+    assert result.clog_cleared is False
+    assert result.pressure_change == 0
+    assert has_clog(seeded_network, clog_section_position) is True
+
+
+def test_hydro_blast_no_clog(seeded_network: PipeNetwork) -> None:
+    """Blasting a section without a clog returns clog_cleared=False and no pressure change."""
+    result = hydro_blast(seeded_network, seeded_network.entry_valve, player_pressure=100)
+    assert result.clog_cleared is False
+    assert result.pressure_change == 0
 
 
 # ---------------------------------------------------------------------------
@@ -452,3 +568,40 @@ def test_update_visited_contains_new_position() -> None:
     result = update_visited(original, Position(1, 1))
     assert (1, 1) in result
     assert (0, 0) in result
+
+
+def test_get_visibility_map_at_exit_drain(seeded_network: PipeNetwork) -> None:
+    """Player at exit drain: that cell is is_current, is_visited, and is_visible."""
+    exit_pos = seeded_network.exit_drain
+    visited = frozenset({(exit_pos.row, exit_pos.col)})
+    vis_map = get_visibility_map(seeded_network, exit_pos, visited)
+    exit_vis = vis_map[exit_pos.row][exit_pos.col]
+    assert exit_vis.is_current is True
+    assert exit_vis.is_visited is True
+    assert exit_vis.is_visible is True
+
+
+def test_get_visibility_map_fully_explored(seeded_network: PipeNetwork) -> None:
+    """When all positions are visited, every cell is visible with full details."""
+    all_positions = frozenset(
+        (r, c)
+        for r in range(seeded_network.rows)
+        for c in range(seeded_network.cols)
+    )
+    current = seeded_network.entry_valve
+    vis_map = get_visibility_map(seeded_network, current, all_positions)
+    for r in range(seeded_network.rows):
+        for c in range(seeded_network.cols):
+            sv = vis_map[r][c]
+            assert sv.is_visible is True, f"Cell ({r},{c}) should be visible when fully explored"
+            assert sv.has_clog is not None, f"Cell ({r},{c}) has_clog should not be None when visible"
+            assert sv.open_directions is not None, f"Cell ({r},{c}) open_directions should not be None when visible"
+
+
+def test_update_visited_with_position_mode_input() -> None:
+    """update_visited works correctly when input contains Position objects (not tuples)."""
+    original: set[Position] = {Position(0, 0), Position(1, 0)}
+    result = update_visited(original, Position(2, 2))
+    assert Position(2, 2) in result
+    assert Position(0, 0) in result
+    assert Position(1, 0) in result
