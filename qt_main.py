@@ -131,6 +131,10 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("Nuovo Fresco // Pipe Strike")
         self.resize(1280, 820)
+
+        screen = QApplication.primaryScreen().availableGeometry()
+        x = (screen.width() - self.width()) // 2
+        self.move(x, 50)
         self.setStyleSheet(APP_STYLE)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
@@ -259,6 +263,11 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.east_button, 1, 2)
         layout.addWidget(self.south_button, 2, 1)
 
+        blast_hint = QLabel("B: HYDRO BLAST")
+        blast_hint.setObjectName("ValueLabel")
+        blast_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(blast_hint, 3, 0, 1, 3)
+
         return box
 
     def _build_question_box(self) -> QGroupBox:
@@ -369,13 +378,12 @@ class MainWindow(QMainWindow):
                 button.setEnabled(False)
         else:
             self.question_prompt.setText(
-                f"{state.question.prompt}\n\nUse 1-4, A-D, or click an answer."
+                f"{state.question.prompt}\n\nUse 1-4 or click an answer."
             )
             for i, button in enumerate(self.answer_buttons):
                 if i < len(state.question.choices):
                     number = i + 1
-                    letter = chr(ord("A") + i)
-                    button.setText(f"{number} / {letter}: {state.question.choices[i]}")
+                    button.setText(f"{number}: {state.question.choices[i]}")
                     button.setVisible(True)
                     button.setEnabled(state.can_answer)
                 else:
@@ -425,19 +433,19 @@ class MainWindow(QMainWindow):
             return
 
         if state.question is not None:
-            if key == Qt.Key.Key_1 or text == "a":
+            if key == Qt.Key.Key_1:
                 self.refresh_from_state(self.controller.answer_question(0))
                 return
-            if key == Qt.Key.Key_2 or text == "b":
+            if key == Qt.Key.Key_2:
                 self.refresh_from_state(self.controller.answer_question(1))
                 return
-            if key == Qt.Key.Key_3 or text == "c":
+            if key == Qt.Key.Key_3:
                 self.refresh_from_state(self.controller.answer_question(2))
                 return
-            if key == Qt.Key.Key_4 or text == "d":
+            if key == Qt.Key.Key_4:
                 self.refresh_from_state(self.controller.answer_question(3))
                 return
-            if key == Qt.Key.Key_H:
+            if key == Qt.Key.Key_B:
                 self.refresh_from_state(self.controller.blast())
                 return
 

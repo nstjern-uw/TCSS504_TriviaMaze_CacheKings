@@ -235,8 +235,6 @@ class PipeView:
             return "◉"
         if sv.has_clog:
             return "▓"
-        if exit_drain is not None and sv.position == exit_drain:
-            return "▼"
         if entry_valve is not None and sv.position == entry_valve:
             return "▲"
         if sv.is_visited:

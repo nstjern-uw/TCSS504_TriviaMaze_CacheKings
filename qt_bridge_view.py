@@ -96,9 +96,8 @@ class QtPipeView:
     def _build_help_text(self) -> str:
         return (
             "PIPE COMMANDS\n"
-            "Move: north / south / east / west\n"
-            "Shortcuts: n / s / e / w\n"
-            "Clog answers: a / b / c / d\n"
-            "Special: blast  (-50 pressure)\n"
+            "Move: Arrow keys\n"
+            "Clog answers: 1 / 2 / 3 / 4\n"
+            "Special: B — hydro blast  (-50 pressure)\n"
             "System: save / load / help / quit"
         )
