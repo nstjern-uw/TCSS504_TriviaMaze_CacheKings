@@ -13,8 +13,14 @@ Nuovo Fresco Pipe Network is a trivia maze game built in Python. Players navigat
 
 ## Running the Game
 
+CLI:
 ```bash
-python main.py
+python3 main.py
+```
+
+Qt GUI:
+```bash
+python3 qt_main.py
 ```
 
 ---
@@ -25,7 +31,7 @@ python main.py
 pytest tests/ -v
 ```
 
-**Current test count: 112 passing, 0 warnings.**
+**Current test count: 116 passing, 0 warnings.**
 
 | Test file | What it covers |
 |---|---|
@@ -47,6 +53,11 @@ The project enforces strict module boundaries:
 | `db.py` | Persistence only — SQLite-backed save/load game state and question bank via `SQLiteRepository`. |
 | `main.py` | Engine orchestration — wires `maze.py` and `db.py` together, owns CLI I/O and dataclass serialization. |
 | `view.py` | CLI rendering — displays the maze and game state to the terminal. |
+| `qt_main.py` | Qt GUI main window and entry point. |
+| `qt_controller.py` | Controller bridging the engine and Qt view. |
+| `qt_bridge_view.py` | Qt-compatible view bridge — stores display data for the GUI. |
+| `qt_models.py` | View state dataclasses for the Qt layer. |
+| `widgets/maze_canvas.py` | Custom-painted maze tile renderer using `QPainter`. |
 
 See `docs/interfaces.md` for the full `PipeNetworkProtocol` and `RepositoryProtocol` contracts.
 
@@ -54,7 +65,8 @@ See `docs/interfaces.md` for the full `PipeNetworkProtocol` and `RepositoryProto
 
 ## Notable Features
 
-- **40-question bank** — expanded from 20 to 40 seed questions covering Italian vocabulary, plumbing facts, and general water trivia.
+- **PyQt6 graphical interface** — full Qt GUI with a custom-painted maze canvas, arcade-style visuals, keyboard controls (arrow keys, 1–4 for answers, B for hydro blast), clickable answer buttons, and a tactical HUD. The CLI remains fully functional as an alternative.
+- **38-question bank** — seed questions covering Italian vocabulary, plumbing facts, and general water trivia.
 - **`list_save_slots()`** — `SQLiteRepository` method that returns all save slot names ordered by most recently updated; designed for GUI load-game menus.
 - **`datetime` deprecation fix** — all `datetime.utcnow()` calls replaced with `datetime.now(timezone.utc)`.
 - **Boundary-value test coverage** — full four-direction boundary movement tests, `hydro_blast` threshold tests (at/below/no-clog), and fog-of-war edge case tests.
@@ -67,7 +79,7 @@ See `docs/interfaces.md` for the full `PipeNetworkProtocol` and `RepositoryProto
 |---|---|---|
 | Ryan Belmonte | Maze & Database | `maze.py`, `db.py`, `tests/test_maze_contract.py`, `tests/test_repo_contract.py`, `tests/test_sqlite_repo.py` |
 | Liam Sipp | *(to be filled in)* | *(to be filled in)* |
-| Nick Stjern | *(to be filled in)* | *(to be filled in)* |
+| Nick Stjern | Engine & Integration | `run_qt()`, `_key_to_command()`, `get_display_state()`, `_refresh_qt_view()` in `main.py`; Qt integration wiring (`qt_main.py`, `qt_controller.py`, `qt_bridge_view.py`, `qt_models.py`, `widgets/maze_canvas.py`); automated + manual integration verification |
 
 ---
 
