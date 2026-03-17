@@ -355,8 +355,6 @@ class MazeCanvas(QWidget):
             return self.HIDDEN_FILL, self.HIDDEN_INNER
         if cell.is_current:
             return self.CURRENT_FILL, self.CURRENT_INNER
-        if cell.is_exit_drain:
-            return self.EXIT_FILL, self.EXIT_INNER
         if cell.is_entry_valve:
             return self.ENTRY_FILL, self.ENTRY_INNER
         if cell.has_clog:
@@ -441,8 +439,6 @@ class MazeCanvas(QWidget):
         label = ""
         if cell.is_entry_valve:
             label = "IN"
-        elif cell.is_exit_drain:
-            label = "OUT"
         elif cell.has_clog:
             label = "X"
 

@@ -83,8 +83,8 @@ class QuestionBank(SQLModel, table=True):
 SEED_QUESTIONS: list[dict[str, Any]] = [
     {
         "prompt": "What is the main job of a plumber in Nuovo Fresco?",
-        "choices": ["Fixing broken pipes", "Painting walls", "Installing windows", "Rewiring electricity"],
-        "correct_answer": "Fixing broken pipes",
+        "choices": ["Clearing clogged pipes", "Painting walls", "Installing windows", "Rewiring electricity"],
+        "correct_answer": "Clearing clogged pipes",
     },
     {
         "prompt": "What does a clog in a pipe do to water flow?",
@@ -107,11 +107,6 @@ SEED_QUESTIONS: list[dict[str, Any]] = [
         "correct_answer": "PSI (pounds per square inch)",
     },
     {
-        "prompt": "In Nuovo Fresco, what is the entry point to the pipe network called?",
-        "choices": ["Entry valve", "Start door", "Open gate", "Flow switch"],
-        "correct_answer": "Entry valve",
-    },
-    {
         "prompt": "What happens to water pressure when a pipe is clogged?",
         "choices": ["It drops", "It rises", "It stays the same", "It disappears"],
         "correct_answer": "It drops",
@@ -120,11 +115,6 @@ SEED_QUESTIONS: list[dict[str, Any]] = [
         "prompt": "What material are most modern water pipes made from?",
         "choices": ["PVC plastic or copper", "Wood", "Glass", "Rubber"],
         "correct_answer": "PVC plastic or copper",
-    },
-    {
-        "prompt": "What is the exit point of the Nuovo Fresco pipe network called?",
-        "choices": ["Exit drain", "End pipe", "Finish valve", "Out gate"],
-        "correct_answer": "Exit drain",
     },
     {
         "prompt": "What does a valve do in a pipe system?",

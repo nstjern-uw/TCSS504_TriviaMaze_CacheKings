@@ -12,6 +12,7 @@ Dependency rules (RUNBOOK.md / interfaces.md):
 
 from __future__ import annotations
 
+import random
 from dataclasses import asdict
 from enum import Enum
 from typing import Any
@@ -489,9 +490,11 @@ class GameEngine:
         if hasattr(self._repo, "get_unused_question"):
             q_dict = self._repo.get_unused_question()
             if q_dict is not None:
+                choices = list(q_dict["choices"])
+                random.shuffle(choices)
                 self._current_question = Question(
                     prompt=q_dict["prompt"],
-                    choices=q_dict["choices"],
+                    choices=choices,
                     correct_answer=q_dict["correct_answer"],
                 )
                 return
