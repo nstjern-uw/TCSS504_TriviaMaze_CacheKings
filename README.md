@@ -20,7 +20,7 @@ python3 main.py
 
 Qt GUI:
 ```bash
-python3 qt_main.py
+python3 main.py --qt
 ```
 
 ---
@@ -65,7 +65,7 @@ See `docs/interfaces.md` for the full `PipeNetworkProtocol` and `RepositoryProto
 
 ## Notable Features
 
-- **PyQt6 graphical interface** — full Qt GUI with a custom-painted maze canvas, arcade-style visuals, keyboard controls (arrow keys, 1–4 for answers, B for hydro blast), clickable answer buttons, and a tactical HUD. The CLI remains fully functional as an alternative.
+- **PyQt6 graphical interface** — full Qt GUI with a custom-painted maze canvas, arcade-style visuals, keyboard controls (arrow keys, 1–4 for answers, H for hydro blast), clickable answer buttons, and a tactical HUD. The CLI remains fully functional as an alternative.
 - **38-question bank** — seed questions covering Italian vocabulary, plumbing facts, and general water trivia.
 - **`list_save_slots()`** — `SQLiteRepository` method that returns all save slot names ordered by most recently updated; designed for GUI load-game menus.
 - **`datetime` deprecation fix** — all `datetime.utcnow()` calls replaced with `datetime.now(timezone.utc)`.

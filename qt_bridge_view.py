@@ -98,6 +98,6 @@ class QtPipeView:
             "PIPE COMMANDS\n"
             "Move: Arrow keys\n"
             "Clog answers: 1 / 2 / 3 / 4\n"
-            "Special: B — hydro blast  (-50 pressure)\n"
+            "Special: H — hydro blast  (-50 pressure)\n"
             "System: save / load / help / quit"
         )
