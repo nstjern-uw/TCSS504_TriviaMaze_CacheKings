@@ -12,6 +12,7 @@ Dependency rules (RUNBOOK.md / interfaces.md):
 
 from __future__ import annotations
 
+import random
 from dataclasses import asdict
 from enum import Enum
 from typing import Any
@@ -176,6 +177,44 @@ class GameEngine:
     @property
     def phase(self) -> EnginePhase:
         return self._phase
+
+    # -- display state (gui-design-proposal-qt §4.5) -------------------------
+
+    def get_display_state(self) -> dict[str, Any] | None:
+        """Return everything the view layer needs to render one frame.
+
+        Returns None if no game is active. The Qt controller calls this
+        after each process_command() to get a fresh snapshot for rendering.
+        The view never reaches into private engine fields — this method
+        is the single data gateway.
+        """
+        if self._state is None:
+            return None
+
+        vis_map = get_visibility_map(
+            self._state.pipe_network,
+            self._state.player.position,
+            self._state.visited_positions,
+        )
+
+        return {
+            "vis_grid": vis_map,
+            "rows": self._state.pipe_network.rows,
+            "cols": self._state.pipe_network.cols,
+            "entry_valve": self._state.pipe_network.entry_valve,
+            "exit_drain": self._state.pipe_network.exit_drain,
+            "player_row": self._state.player.position.row,
+            "player_col": self._state.player.position.col,
+            "pressure": self._state.player.pressure,
+            "clogs_cleared": self._state.player.clogs_cleared,
+            "level": self._state.player.current_level,
+            "phase": self._phase.value,
+            "status": self._state.status.value,
+            "question": {
+                "prompt": self._current_question.prompt,
+                "choices": self._current_question.choices,
+            } if self._current_question else None,
+        }
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -346,6 +385,19 @@ class GameEngine:
                 "\nThe pipes will wait. Goodbye, plumber."
             )
 
+    @staticmethod
+    def run_qt() -> None:
+        """Launch the Qt GUI via qt_main.
+
+        QtGameController (in qt_controller.py) creates its own
+        GameEngine and QtPipeView bridge internally, so this method
+        simply delegates to the standalone Qt entry point.
+
+        CLI run() is unaffected; this is a parallel launch path.
+        """
+        from qt_main import main as qt_main
+        raise SystemExit(qt_main())
+
     # -- private handlers ----------------------------------------------------
 
     def _handle_move(self, direction_str: str) -> GameStatus:
@@ -438,9 +490,11 @@ class GameEngine:
         if hasattr(self._repo, "get_unused_question"):
             q_dict = self._repo.get_unused_question()
             if q_dict is not None:
+                choices = list(q_dict["choices"])
+                random.shuffle(choices)
                 self._current_question = Question(
                     prompt=q_dict["prompt"],
-                    choices=q_dict["choices"],
+                    choices=choices,
                     correct_answer=q_dict["correct_answer"],
                 )
                 return
@@ -457,5 +511,10 @@ class GameEngine:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    engine = GameEngine()
-    engine.run()
+    import sys
+
+    if "--qt" in sys.argv:
+        GameEngine.run_qt()
+    else:
+        engine = GameEngine()
+        engine.run()

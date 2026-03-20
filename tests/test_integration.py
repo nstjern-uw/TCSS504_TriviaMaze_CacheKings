@@ -363,3 +363,56 @@ def test_save_load_preserves_visited_positions(save_path) -> None:
     loaded = GameEngine(repo=repo, save_path=save_path)
     assert loaded.load_game() is True
     assert loaded.state.visited_positions == visited_before
+
+
+# ---------------------------------------------------------------------------
+# get_display_state() — GUI data-gateway contract
+# ---------------------------------------------------------------------------
+
+def test_get_display_state_none_before_start(save_path) -> None:
+    """No display state when the engine has not started a game."""
+    e = GameEngine(repo=MockRepo(), save_path=save_path)
+    assert e.get_display_state() is None
+
+
+def test_get_display_state_after_new_game(engine: GameEngine) -> None:
+    """Fresh game produces a complete display-state dict."""
+    ds = engine.get_display_state()
+    assert ds is not None
+    assert ds["rows"] == 4
+    assert ds["cols"] == 4
+    assert ds["player_row"] == 0
+    assert ds["player_col"] == 0
+    assert ds["pressure"] == DEFAULT_PRESSURE
+    assert ds["phase"] == "navigating"
+    assert ds["status"] == "in_progress"
+    assert ds["question"] is None
+    assert len(ds["vis_grid"]) == ds["rows"]
+
+
+def test_get_display_state_after_move(engine: GameEngine) -> None:
+    """Display state reflects the player's new position after a move."""
+    state = engine.state
+    entry_section = get_section(state.pipe_network, state.player.position)
+    open_dir = next(
+        (d for d, sealed in entry_section.connections.items() if not sealed),
+        None,
+    )
+    assert open_dir is not None
+    engine.process_command(open_dir)
+    ds = engine.get_display_state()
+    assert (ds["player_row"], ds["player_col"]) != (0, 0)
+
+
+def test_get_display_state_after_save_load(save_path) -> None:
+    """Display state survives a save/load round-trip."""
+    repo = MockRepo()
+    e = GameEngine(repo=repo, save_path=save_path)
+    e.start_new_game(seed=42)
+    e.save_game()
+
+    e2 = GameEngine(repo=repo, save_path=save_path)
+    e2.load_game()
+    ds = e2.get_display_state()
+    assert ds is not None
+    assert ds["status"] == "in_progress"
