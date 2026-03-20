@@ -221,7 +221,7 @@ Pure mapping function using `Qt.Key` enum values — no side effects:
 | Arrow Left / A    | `"west"`  |
 | Arrow Right / D   | `"east"`  |
 | 1 / 2 / 3 / 4    | `"a"` / `"b"` / `"c"` / `"d"` |
-| H                 | `"blast"` |
+| B                 | `"blast"` |
 | Escape            | `"quit"`  |
 | F5                | `"save"`  |
 | F9                | `"load"`  |
@@ -236,7 +236,7 @@ def _key_to_command(key):
         Qt.Key.Key_Right: "east",  Qt.Key.Key_D: "east",
         Qt.Key.Key_1: "a",  Qt.Key.Key_2: "b",
         Qt.Key.Key_3: "c",  Qt.Key.Key_4: "d",
-        Qt.Key.Key_H: "blast",
+        Qt.Key.Key_B: "blast",
         Qt.Key.Key_Escape: "quit",
         Qt.Key.Key_F5: "save",
         Qt.Key.Key_F9: "load",
@@ -389,7 +389,7 @@ These do not touch the view layer, so adding the Qt GUI has zero impact on them.
 
 - `test_key_to_command_directions` — Arrow keys and WASD map to directions.
 - `test_key_to_command_answers` — Keys 1–4 map to `"a"`–`"d"`.
-- `test_key_to_command_actions` — H → `"blast"`, Escape → `"quit"`, F5 → `"save"`, F9 → `"load"`.
+- `test_key_to_command_actions` — B → `"blast"`, Escape → `"quit"`, F5 → `"save"`, F9 → `"load"`.
 - `test_key_to_command_unknown_returns_none` — Unmapped keys return `None`.
 
 ### 7.3 New tests: engine driver API
@@ -447,7 +447,7 @@ After all work is merged, run these checks on the final codebase.
 - Hit a clog — question panel appears.
 - Answer correctly — clog clears, question panel hides.
 - Answer incorrectly — pressure drops, new question appears.
-- Use blast (H key) — clog clears, pressure drops 50.
+- Use blast (B key) — clog clears, pressure drops 50.
 - Save (F5) — no error.
 - Load (F9) — state restored.
 - Clear all clogs — win message shown.

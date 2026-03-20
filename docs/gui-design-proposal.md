@@ -152,7 +152,7 @@ Pure mapping, no side effects:
 | Arrow Left / A    | `"west"` |
 | Arrow Right / D   | `"east"` |
 | 1 / 2 / 3 / 4     | `"a"` / `"b"` / `"c"` / `"d"` |
-| H                 | `"blast"`|
+| B                 | `"blast"`|
 | Escape            | `"quit"` |
 | F5                | `"save"` |
 | F9                | `"load"` |
