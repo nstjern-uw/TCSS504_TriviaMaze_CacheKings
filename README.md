@@ -78,7 +78,7 @@ See `docs/interfaces.md` for the full `PipeNetworkProtocol` and `RepositoryProto
 | Member | Role | Owned |
 |---|---|---|
 | Ryan Belmonte | Maze, Database & Architecture | `maze.py`, `db.py`; 38-question seed bank and `list_save_slots()` in `db.py`; protocol contracts and module boundary rules (`docs/interfaces.md`, `tests/test_module_isolation.py`); test suites for domain, persistence, and SQLite integration (`test_maze_contract.py`, `test_repo_contract.py`, `test_sqlite_repo.py`); architecture RFC (`docs/RFC-ryan-part1-design-contracts-domain-architect.md`); extended Nick's renderer design into a full PyQt6 project proposal (`docs/gui-design-proposal-qt.md`) |
-| Liam Sipp | *(to be filled in)* | *(to be filled in)* |
+| Liam Sipp | GUI & Canvas (PyQt6) | `qt_models.py`, `qt_bridge_view.py`, `qt_controller.py`, `qt_main.py`, `widgets/maze_canvas.py`; PyQt6 GUI/canvas implementation, themed HUD and controls, keyboard/button input wiring, and Qt-side presentation layer for the Final Maze phase |
 | Nick Stjern | Engine & Integration | `run_qt()`, `_key_to_command()`, `get_display_state()`, `_refresh_qt_view()` in `main.py`; Qt integration wiring (`qt_main.py`, `qt_controller.py`, `qt_bridge_view.py`, `qt_models.py`, `widgets/maze_canvas.py`); automated + manual integration verification |
 
 ---
