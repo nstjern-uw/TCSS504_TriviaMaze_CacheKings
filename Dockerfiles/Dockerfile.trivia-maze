@@ -1,0 +1,25 @@
+FROM python:3.11-slim
+
+# Prevent interactive prompts during package installation
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Install git so we can clone the repo
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
+# Clone the Trivia Maze repository
+RUN git clone https://github.com/nstjern-uw/TCSS504_TriviaMaze_CacheKings.git /app
+
+# Set the working directory
+WORKDIR /app
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Create a volume for persistent game saves
+VOLUME ["/app/saves"]
+
+# Set environment variable to store saves in the volume
+ENV GAME_SAVES_DIR=/app/saves
+
+# Run the CLI version of the maze game
+CMD ["python", "main.py"]

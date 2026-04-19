@@ -13,6 +13,8 @@ Nuovo Fresco Pipe Network is a trivia maze game built in Python. Players navigat
 
 ## Running the Game
 
+### Local Installation
+
 CLI:
 ```bash
 python3 main.py
@@ -21,6 +23,47 @@ python3 main.py
 Qt GUI:
 ```bash
 python3 main.py --qt
+```
+
+### Docker (CLI Only)
+
+The Dockerized version runs the **CLI maze only**. This is ideal for reproducible, containerized environments.
+
+#### Build the Docker Image
+
+From the repository root:
+
+```bash
+cd Dockerfiles
+docker build -f Dockerfile.trivia-maze -t maze .
+```
+
+Or, if you prefer a shorter build command (rename the Dockerfile first):
+```bash
+cd Dockerfiles
+mv Dockerfile.trivia-maze Dockerfile
+docker build -t maze .
+```
+
+#### Run the Container
+
+Start an interactive CLI session:
+
+```bash
+docker run --rm -it -v trivia-maze-saves:/app/saves maze
+```
+
+This command:
+- `--rm` — Automatically removes the container after it exits
+- `-it` — Enables interactive terminal input
+- `-v trivia-maze-saves:/app/saves` — Persists game saves in a Docker volume (optional)
+
+#### Pull and Run from Docker Hub
+
+The image is also available on Docker Hub. To pull and run directly:
+
+```bash
+docker run --rm -it ryanpbelmonte/maze:v1
 ```
 
 ---
